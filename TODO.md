@@ -23,14 +23,14 @@
 ## 1. Setup & Project Infrastructure
 
 ### 1.1 Repository & Version Control
-- [ ] Add a root-level `README.md` with project overview, architecture diagram, and quick-start instructions
-- [ ] Refine `.gitignore` to cover Python (`__pycache__`, `.venv`, `*.pyc`), Node (`node_modules`, `.next`), secrets (`.env*`), vector DB data dirs, and model weights
-- [ ] Create a `CHANGELOG.md` file
+- [x] Add a root-level `README.md` with project overview, architecture diagram, and quick-start instructions
+- [x] Refine `.gitignore` to cover Python (`__pycache__`, `.venv`, `*.pyc`), Node (`node_modules`, `.next`), secrets (`.env*`), vector DB data dirs, and model weights
+- [x] Create a `CHANGELOG.md` file
 - [ ] Set up branch protection rules (`main` requires PR + CI pass)
 - [ ] Define a Git branching strategy (e.g., `main` / `develop` / feature branches)
 
 ### 1.2 Python Environment (Backend)
-- [ ] Create `backend/requirements.txt` (or `pyproject.toml`) with pinned versions:
+- [x] Create `backend/requirements.txt` (or `pyproject.toml`) with pinned versions:
   - `fastapi>=0.115`
   - `uvicorn[standard]>=0.30`
   - `httpx>=0.27` (async Jamf API calls)
@@ -53,7 +53,7 @@
   - `prometheus-fastapi-instrumentator>=7.0` (metrics)
 - [ ] Create and activate a Python virtual environment (`python -m venv .venv`)
 - [ ] Install all backend dependencies (`pip install -r backend/requirements.txt`)
-- [ ] Create `backend/requirements-dev.txt`:
+- [x] Create `backend/requirements-dev.txt`:
   - `pytest>=8`
   - `pytest-asyncio>=0.23`
   - `httpx` (for `TestClient`)
@@ -63,7 +63,7 @@
   - `pre-commit>=3.7`
 
 ### 1.3 Node / Frontend Environment
-- [ ] Install additional frontend dependencies:
+- [x] Install additional frontend dependencies:
   - `@tanstack/react-query` (server-state management)
   - `@tanstack/react-table` (data tables)
   - `recharts` or `chart.js` + `react-chartjs-2` (charts)
@@ -79,19 +79,19 @@
   - `next-auth` (authentication)
   - `zod` (schema validation for forms/API)
   - `react-hook-form` (form management)
-- [ ] Install dev dependencies: `@testing-library/react`, `@testing-library/user-event`, `vitest`, `@playwright/test`, `msw`
+- [x] Install dev dependencies: `@testing-library/react`, `@testing-library/user-event`, `vitest`, `@playwright/test`, `msw`
 - [ ] Initialize `shadcn/ui` (`npx shadcn-ui@latest init`)
 
 ### 1.4 Database Infrastructure
 - [ ] Choose and provision a PostgreSQL instance (local Docker or managed service)
-- [ ] Create a `docker-compose.yml` at the project root with services:
+- [x] Create a `docker-compose.yml` at the project root with services:
   - `postgres` (v16, with volume mount)
   - `redis` (v7, for caching and session storage)
   - `backend` (FastAPI container)
   - `frontend` (Next.js container)
   - `chroma` (ChromaDB vector store container)
   - `ollama` (local LLM runtime container with GPU passthrough if available)
-- [ ] Define environment variable templates in `.env.example`:
+- [x] Define environment variable templates in `.env.example`:
   - `DATABASE_URL`
   - `REDIS_URL`
   - `SECRET_KEY` / `JWT_ALGORITHM` / `ACCESS_TOKEN_EXPIRE_MINUTES`
@@ -102,19 +102,19 @@
 - [ ] Copy `.env.example` to `.env` and populate with local values (add `.env` to `.gitignore`)
 
 ### 1.5 Tooling & Code Quality
-- [ ] Configure `ruff` for linting + formatting in `pyproject.toml` or `ruff.toml`
-- [ ] Configure `mypy` with `strict` mode in `mypy.ini`
-- [ ] Set up `pre-commit` hooks (ruff, mypy, prettier, ESLint, trailing-whitespace)
-- [ ] Configure Prettier for frontend (`.prettierrc`)
+- [x] Configure `ruff` for linting + formatting in `pyproject.toml` or `ruff.toml`
+- [x] Configure `mypy` with `strict` mode in `mypy.ini`
+- [x] Set up `pre-commit` hooks (ruff, mypy, prettier, ESLint, trailing-whitespace)
+- [x] Configure Prettier for frontend (`.prettierrc`)
 - [ ] Configure ESLint rules in `eslint.config.mjs` (already exists — review and expand)
-- [ ] Set up GitHub Actions CI workflow (`.github/workflows/ci.yml`): lint → unit tests → build
+- [x] Set up GitHub Actions CI workflow (`.github/workflows/ci.yml`): lint → unit tests → build
 
 ---
 
 ## 2. Backend
 
 ### 2.1 Project Structure
-- [ ] Reorganize `backend/` into a proper package layout:
+- [x] Reorganize `backend/` into a proper package layout:
   ```
   backend/
   ├── app/
@@ -147,35 +147,35 @@
   ├── requirements.txt
   └── Dockerfile
   ```
-- [ ] Move existing `main.py` into `app/main.py` and refactor as app factory with `lifespan`
-- [ ] Create `app/config.py` using `pydantic_settings.BaseSettings`, loading from `.env`
+- [x] Move existing `main.py` into `app/main.py` and refactor as app factory with `lifespan`
+- [x] Create `app/config.py` using `pydantic_settings.BaseSettings`, loading from `.env`
 
 ### 2.2 Database Models (SQLAlchemy)
-- [ ] `JamfServer` — id, name, url, client_id, client_secret (encrypted), is_active, last_sync
-- [ ] `Device` — id, jamf_id, server_id (FK), udid, name, serial_number, model, os_version, os_build, last_contact, last_enrollment, is_managed, is_supervised, asset_tag, username, department, building, site
-- [ ] `DeviceApplication` — id, device_id (FK), name, version, bundle_id, short_version
-- [ ] `DevicePolicy` — id, device_id (FK), policy_id (FK), last_executed, result
-- [ ] `Policy` — id, jamf_id, server_id (FK), name, enabled, category, trigger, scope_description, payload_description
-- [ ] `SmartGroup` — id, jamf_id, server_id (FK), name, criteria, member_count, last_refreshed
-- [ ] `PatchTitle` — id, jamf_id, server_id (FK), software_title, current_version, latest_version, patched_count, unpatched_count
-- [ ] `ComplianceResult` — id, device_id (FK), check_name, status (pass/fail/warn), checked_at, details
-- [ ] `SecurityStatus` — id, device_id (FK), firewall_enabled, sip_enabled, gatekeeper_enabled, filevault_enabled, remote_login_enabled, disk_encryption_status
-- [ ] `User` — id, username, email, hashed_password, is_admin, is_active, created_at
-- [ ] `ChatSession` — id, user_id (FK), title, created_at, updated_at
-- [ ] `ChatMessage` — id, session_id (FK), role (user/assistant), content, sources (JSONB), created_at
-- [ ] `KnowledgeDocument` — id, title, source, file_path, file_hash, ingested_at, chunk_count
-- [ ] Run `alembic init alembic` and configure `alembic.ini` + `env.py`
+- [x] `JamfServer` — id, name, url, client_id, client_secret (encrypted), is_active, last_sync
+- [x] `Device` — id, jamf_id, server_id (FK), udid, name, serial_number, model, os_version, os_build, last_contact, last_enrollment, is_managed, is_supervised, asset_tag, username, department, building, site
+- [x] `DeviceApplication` — id, device_id (FK), name, version, bundle_id, short_version
+- [x] `DevicePolicy` — id, device_id (FK), policy_id (FK), last_executed, result
+- [x] `Policy` — id, jamf_id, server_id (FK), name, enabled, category, trigger, scope_description, payload_description
+- [x] `SmartGroup` — id, jamf_id, server_id (FK), name, criteria, member_count, last_refreshed
+- [x] `PatchTitle` — id, jamf_id, server_id (FK), software_title, current_version, latest_version, patched_count, unpatched_count
+- [x] `ComplianceResult` — id, device_id (FK), check_name, status (pass/fail/warn), checked_at, details
+- [x] `SecurityStatus` — id, device_id (FK), firewall_enabled, sip_enabled, gatekeeper_enabled, filevault_enabled, remote_login_enabled, disk_encryption_status
+- [x] `User` — id, username, email, hashed_password, is_admin, is_active, created_at
+- [x] `ChatSession` — id, user_id (FK), title, created_at, updated_at
+- [x] `ChatMessage` — id, session_id (FK), role (user/assistant), content, sources (JSONB), created_at
+- [x] `KnowledgeDocument` — id, title, source, file_path, file_hash, ingested_at, chunk_count
+- [x] Run `alembic init alembic` and configure `alembic.ini` + `env.py`
 - [ ] Create initial migration with `alembic revision --autogenerate -m "initial"`
 
 ### 2.3 Authentication & Authorization
-- [ ] Implement `/api/auth/register` endpoint (admin-only, first user bootstrapping)
-- [ ] Implement `/api/auth/login` endpoint (returns JWT access token + refresh token)
-- [ ] Implement `/api/auth/refresh` endpoint (rotates access token using refresh token)
-- [ ] Implement `/api/auth/logout` endpoint (invalidates refresh token in Redis)
-- [ ] Create `get_current_user` FastAPI dependency (validates JWT Bearer token)
-- [ ] Create `require_admin` FastAPI dependency
-- [ ] Store refresh tokens in Redis with TTL
-- [ ] Hash passwords with bcrypt via passlib
+- [x] Implement `/api/auth/register` endpoint (admin-only, first user bootstrapping)
+- [x] Implement `/api/auth/login` endpoint (returns JWT access token + refresh token)
+- [x] Implement `/api/auth/refresh` endpoint (rotates access token using refresh token)
+- [x] Implement `/api/auth/logout` endpoint (invalidates refresh token in Redis)
+- [x] Create `get_current_user` FastAPI dependency (validates JWT Bearer token)
+- [x] Create `require_admin` FastAPI dependency
+- [x] Store refresh tokens in Redis with TTL
+- [x] Hash passwords with bcrypt via passlib
 
 ### 2.4 Jamf Server Management Endpoints
 - [ ] `GET /api/servers` — list all configured Jamf servers
@@ -246,7 +246,7 @@
 ## 3. Frontend
 
 ### 3.1 Project Structure
-- [ ] Reorganize `frontend/src/` into a scalable layout:
+- [x] Reorganize `frontend/src/` into a scalable layout:
   ```
   src/
   ├── app/
@@ -338,19 +338,19 @@
   ```
 
 ### 3.2 Layout & Navigation
-- [ ] Build root `layout.tsx` with `QueryClientProvider`, `AuthProvider`, and theme provider
-- [ ] Build `Sidebar.tsx` with navigation links, server selector dropdown, and collapse toggle
-- [ ] Build `TopNav.tsx` with breadcrumbs, sync status indicator, notifications bell, and user menu
+- [x] Build root `layout.tsx` with `QueryClientProvider`, `AuthProvider`, and theme provider
+- [x] Build `Sidebar.tsx` with navigation links, server selector dropdown, and collapse toggle
+- [x] Build `TopNav.tsx` with breadcrumbs, sync status indicator, notifications bell, and user menu
 - [ ] Build `MobileSidebar.tsx` (slide-in sheet for mobile)
 - [ ] Implement dark mode toggle with `next-themes`
-- [ ] Implement route-level auth guard (redirect to `/login` if unauthenticated)
+- [x] Implement route-level auth guard (redirect to `/login` if unauthenticated)
 - [ ] Add loading skeleton for dashboard shell
 
 ### 3.3 Authentication UI
-- [ ] Build login page (`/login`) with username/password form, `react-hook-form` + `zod` validation
-- [ ] Call `POST /api/auth/login`, store access token in memory (Zustand), refresh token in `httpOnly` cookie (set by backend)
-- [ ] Implement silent token refresh using `axios` interceptor (retry on 401 with refresh flow)
-- [ ] Build logout flow (call `/api/auth/logout`, clear state, redirect to `/login`)
+- [x] Build login page (`/login`) with username/password form, `react-hook-form` + `zod` validation
+- [x] Call `POST /api/auth/login`, store access token in memory (Zustand), refresh token in `httpOnly` cookie (set by backend)
+- [x] Implement silent token refresh using `axios` interceptor (retry on 401 with refresh flow)
+- [x] Build logout flow (call `/api/auth/logout`, clear state, redirect to `/login`)
 
 ### 3.4 Dashboard Overview Page
 - [ ] Build `KpiCard` displaying: Total Devices, Managed, Unmanaged, Non-Compliant, Pending Patches
@@ -412,10 +412,10 @@
 - [ ] Change own password form
 
 ### 3.13 API Client & State
-- [ ] Create `lib/api.ts` — Axios instance with `baseURL`, auth token injection, 401 refresh interceptor
-- [ ] Create `lib/queryClient.ts` — TanStack Query client with global error handling and stale times
+- [x] Create `lib/api.ts` — Axios instance with `baseURL`, auth token injection, 401 refresh interceptor
+- [x] Create `lib/queryClient.ts` — TanStack Query client with global error handling and stale times
 - [ ] Create custom hooks (`useDevices`, `usePolicies`, etc.) wrapping `useQuery` / `useMutation`
-- [ ] Define full TypeScript types in `types/` matching backend Pydantic schemas
+- [x] Define full TypeScript types in `types/` matching backend Pydantic schemas
 
 ---
 
@@ -491,17 +491,45 @@
 - [ ] Include source citations in AI responses (document titles + chunk references from RAG)
 
 ### 5.3 Tool-Augmented AI (LangChain Tools / Function Calling)
-- [ ] Create `JamfDataTool` — allows AI to query live device/policy data from the database:
+- [ ] Create `JamfDataTool` — allows AI to query live device/policy data from the database (**read-only; all calls go through read-only DB/API credentials**):
   - `get_device_by_name(name)` — look up a specific device
   - `get_devices_by_filter(os_version, compliance_status, smart_group)` — filtered list
   - `get_policy_by_name(name)` — look up a policy
   - `get_smart_group_members(name)` — list devices in a smart group
   - `get_compliance_summary()` — overall compliance stats
   - `get_patch_summary()` — patched vs unpatched counts
-- [ ] Create `PolicyGeneratorTool` — generates Jamf Pro policy XML/JSON from natural language description
+- [ ] Create `PolicyGeneratorTool` — generates Jamf Pro policy XML/JSON from natural language description (**output only — never auto-submits to Jamf**)
 - [ ] Create `ScriptAnalyzerTool` — analyzes a shell script or Jamf script for security issues, best practices, and intent
-- [ ] Create `ExtensionAttributeGeneratorTool` — generates Jamf EA scripts from natural language requirements
+- [ ] Create `ExtensionAttributeGeneratorTool` — generates Jamf EA scripts from natural language requirements (**output only — never auto-submits to Jamf**)
 - [ ] Set up LangChain `AgentExecutor` with tool routing and structured output parsing
+- [ ] Tag every registered tool with a permission level: `READ` or `WRITE` — the agent executor must never invoke a `WRITE` tool without an approved `PendingAction` record in the database
+
+### 5.6 AI Security — Read-Only Enforcement & Human-in-the-Loop Approval
+
+> **Core principle:** The AI assistant may freely read data but must never autonomously mutate anything (create, update, or delete devices, policies, groups, scripts, etc.). Every proposed mutating action must be surfaced to the user as a visible, reviewable command and executed only after explicit approval.
+
+#### Backend
+- [ ] Define a `ToolPermission` enum: `READ` and `WRITE`; annotate every LangChain tool with its permission level
+- [ ] Enforce at the `AgentExecutor` level: intercept any tool call tagged `WRITE` before execution and halt the agent, returning a `pending_approval` response instead of running the tool
+- [ ] Create a `PendingAction` database model — id, session_id (FK), user_id (FK), tool_name, parameters (JSONB), human_readable_summary, status (`pending` / `approved` / `rejected`), created_at, resolved_at
+- [ ] `POST /api/ai/pending-actions/{id}/approve` — user approves; backend executes the deferred tool call and streams the result back
+- [ ] `POST /api/ai/pending-actions/{id}/reject` — user rejects; action is cancelled and AI is notified to respond accordingly
+- [ ] `GET /api/ai/pending-actions` — list all pending (and recently resolved) actions for the current user
+- [ ] For every tool invocation (READ or WRITE), log the full resolved API call (method, endpoint/query, parameters) to a persistent `AiToolAuditLog` table before execution
+- [ ] Expose `GET /api/ai/audit-log` (admin only) — paginated log of every tool call the AI has ever made, with user, session, timestamp, tool, parameters, and approval status
+- [ ] Enforce read-only Jamf API credentials for AI tool calls: store a separate `jamf_readonly_client_id` / `jamf_readonly_client_secret` per server used exclusively by the AI service layer; these credentials must only have **Read** privileges in the Jamf Pro API Role
+- [ ] Validate at startup that the AI Jamf credentials cannot perform write operations (probe a known write-only endpoint and assert 403)
+
+#### Frontend
+- [ ] In `ChatMessage.tsx`, when the AI calls any tool, always render a **"Command Preview" card** showing the tool name, all resolved parameters, and the human-readable summary before the result is shown — this applies to READ tools too so users can always see what was queried
+- [ ] For `WRITE` tool calls, render an **Approval Card** instead of the result: show the proposed command in full, with **Approve** and **Reject** buttons; disable both after one click
+- [ ] After approval or rejection, display the outcome inline in the chat thread
+- [ ] Add a **Pending Approvals** badge on the AI nav item when there are unresolved actions
+- [ ] Build a **Pending Actions panel** (slide-out drawer or dedicated page) listing all pending actions with approve/reject controls
+- [ ] Build an **AI Audit Log** view under Settings (admin only): searchable, paginated table of all AI tool calls with tool name, parameters, user, timestamp, and approval status
+- [ ] Add a visible **"AI is read-only"** indicator in the chat UI header to communicate the security model to users at a glance
+
+---
 
 ### 5.4 Prompt Engineering
 - [ ] Write a system prompt defining the AI's persona: Jamf expert, professional, concise
@@ -514,6 +542,7 @@
   - General Jamf Q&A (RAG-augmented)
 - [ ] Implement prompt length management (truncate history if context window exceeded)
 - [ ] Add guardrails — detect and reject requests to generate destructive or malicious scripts
+- [ ] Instruct the model in the system prompt that it must never attempt to perform write operations autonomously; all mutations require user approval via the `PendingAction` flow
 
 ### 5.5 AI Frontend — Chat Interface
 - [ ] Build `ChatWindow.tsx` — full-screen or panel chat UI

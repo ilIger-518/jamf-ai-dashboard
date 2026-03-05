@@ -1,0 +1,54 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "S",   # flake8-bandit (security)
+    "N",   # pep8-naming
+]
+ignore = [
+    "S101",  # assert statements (used in tests)
+    "B008",  # function calls in default args (common FastAPI pattern)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/*" = ["S", "N"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "apscheduler.*",
+    "chromadb.*",
+    "langchain.*",
+    "langchain_community.*",
+    "langchain_ollama.*",
+    "sentence_transformers.*",
+    "unstructured.*",
+    "structlog.*",
+    "prometheus_fastapi_instrumentator.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "--cov=backend/app --cov-report=term-missing --cov-fail-under=80"

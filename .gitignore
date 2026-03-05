@@ -1,1 +1,54 @@
-backend/__pycache__/main.cpython-314.pyc
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Node / Next.js ────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# ── Secrets & environment ─────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Docker volumes / data ─────────────────────────────────────
+postgres_data/
+redis_data/
+chroma_data/
+ollama_data/
+
+# ── Model weights ─────────────────────────────────────────────
+*.gguf
+*.bin
+*.safetensors
+models/
+
+# ── OS / editor ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/settings.json
+.idea/
+
+# ── Knowledge base uploads (keep structure, not content) ──────
+knowledge_base/uploads/
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
