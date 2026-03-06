@@ -21,6 +21,7 @@ router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 # ── Request / Response schemas ────────────────────────────────────────────────
 
+
 class ScrapeRequest(BaseModel):
     domain: str
     max_pages: int | None = 100  # None = unlimited
@@ -85,6 +86,7 @@ class SourceResponse(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.post("/scrape", response_model=ScrapeJobResponse, status_code=202)
 async def start_scrape(

@@ -30,11 +30,7 @@ async def list_smart_groups(
     total_result = await db.execute(select(func.count()).select_from(q.subquery()))
     total = total_result.scalar_one()
 
-    q = (
-        q.order_by(SmartGroup.name)
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-    )
+    q = q.order_by(SmartGroup.name).offset((page - 1) * per_page).limit(per_page)
     rows = (await db.execute(q)).scalars().all()
 
     return PagedSmartGroups(

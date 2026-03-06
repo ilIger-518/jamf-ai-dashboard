@@ -5,27 +5,30 @@ Revises: b3f2a1c8d905
 Create Date: 2026-03-06 21:00:00.000000
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = 'c4e1b2d9f031'
-down_revision: str | None = 'b3f2a1c8d905'
+revision: str = "c4e1b2d9f031"
+down_revision: str | None = "b3f2a1c8d905"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     # Make max_pages nullable (None = unlimited)
-    op.alter_column('scrape_jobs', 'max_pages', nullable=True)
+    op.alter_column("scrape_jobs", "max_pages", nullable=True)
     # Add size limit and bytes-scraped tracking columns
-    op.add_column('scrape_jobs', sa.Column('max_size_mb', sa.Integer(), nullable=True))
-    op.add_column('scrape_jobs', sa.Column('bytes_scraped', sa.Integer(), nullable=False, server_default='0'))
+    op.add_column("scrape_jobs", sa.Column("max_size_mb", sa.Integer(), nullable=True))
+    op.add_column(
+        "scrape_jobs", sa.Column("bytes_scraped", sa.Integer(), nullable=False, server_default="0")
+    )
 
 
 def downgrade() -> None:
-    op.drop_column('scrape_jobs', 'bytes_scraped')
-    op.drop_column('scrape_jobs', 'max_size_mb')
-    op.alter_column('scrape_jobs', 'max_pages', nullable=False)
+    op.drop_column("scrape_jobs", "bytes_scraped")
+    op.drop_column("scrape_jobs", "max_size_mb")
+    op.alter_column("scrape_jobs", "max_pages", nullable=False)

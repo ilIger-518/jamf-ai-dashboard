@@ -12,8 +12,8 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "jamf_knowledge"
-CHUNK_SIZE = 800        # characters per chunk
-CHUNK_OVERLAP = 100     # overlap between chunks
+CHUNK_SIZE = 800  # characters per chunk
+CHUNK_OVERLAP = 100  # overlap between chunks
 
 
 async def _get_chroma_client() -> chromadb.AsyncHttpClient:
@@ -71,8 +71,7 @@ async def ingest_document(
 
     ids = [str(uuid.uuid4()) for _ in chunks]
     metadatas: list[dict[str, Any]] = [
-        {"source": source_url, "title": title, "chunk_index": i}
-        for i in range(len(chunks))
+        {"source": source_url, "title": title, "chunk_index": i} for i in range(len(chunks))
     ]
 
     client = await _get_chroma_client()
@@ -113,7 +112,9 @@ async def query_similar(query: str, n_results: int = 5) -> list[dict[str, Any]]:
     hits: list[dict[str, Any]] = []
     if results and results.get("documents"):
         for doc, meta in zip(results["documents"][0], results["metadatas"][0], strict=False):
-            hits.append({"text": doc, "source": meta.get("source", ""), "title": meta.get("title", "")})
+            hits.append(
+                {"text": doc, "source": meta.get("source", ""), "title": meta.get("title", "")}
+            )
     return hits
 
 

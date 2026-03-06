@@ -44,6 +44,7 @@ _LOGIN_PATH_RE = re.compile(r"/(login|signin|sign-in|auth|register|logout|sso)",
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _same_domain(base: str, url: str) -> bool:
     return urlparse(url).netloc == urlparse(base).netloc
 
@@ -87,6 +88,7 @@ def _page_title(html: str, fallback_url: str) -> str:
 # ---------------------------------------------------------------------------
 # Sitemap seeding
 # ---------------------------------------------------------------------------
+
 
 async def _seed_from_sitemap(http: httpx.AsyncClient, start_url: str) -> list[str]:
     """
@@ -136,6 +138,7 @@ async def _seed_from_sitemap(http: httpx.AsyncClient, start_url: str) -> list[st
 # ---------------------------------------------------------------------------
 # Zoomin Software documentation platform support
 # ---------------------------------------------------------------------------
+
 
 def _detect_zoomin_api_host(html: str) -> str | None:
     """
@@ -198,6 +201,7 @@ async def _llm_is_relevant(text_snippet: str, topic_filter: str) -> bool:
     Returns True if relevant, False to skip.
     """
     from app.config import get_settings
+
     settings = get_settings()
     prompt = (
         f"You are a content classifier. Answer only YES or NO.\n"
@@ -227,6 +231,7 @@ async def _llm_is_relevant(text_snippet: str, topic_filter: str) -> bool:
 # ---------------------------------------------------------------------------
 # Main scrape coroutine — runs in background
 # ---------------------------------------------------------------------------
+
 
 async def run_scrape_job(job_id: str) -> None:
     """

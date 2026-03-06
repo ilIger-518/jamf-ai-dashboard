@@ -13,6 +13,7 @@ def _get_fernet():
     if not key:
         return None
     from cryptography.fernet import Fernet
+
     return Fernet(key.encode() if isinstance(key, str) else key)
 
 

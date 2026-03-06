@@ -36,6 +36,7 @@ Do not invent device names, serial numbers, or policy details that are not in th
 # Schemas
 # ---------------------------------------------------------------------------
 
+
 class SessionCreate(BaseModel):
     title: str = "New Chat"
 
@@ -76,26 +77,41 @@ class ChatResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 async def _get_context_stats() -> str:
     """Pull live aggregate stats from the DB to ground the LLM response."""
     try:
         async with AsyncSessionLocal() as session:
-            total_devices = (await session.execute(select(func.count()).select_from(Device))).scalar_one()
+            total_devices = (
+                await session.execute(select(func.count()).select_from(Device))
+            ).scalar_one()
             managed_devices = (
-                await session.execute(select(func.count()).select_from(Device).where(Device.is_managed.is_(True)))
+                await session.execute(
+                    select(func.count()).select_from(Device).where(Device.is_managed.is_(True))
+                )
             ).scalar_one()
-            total_policies = (await session.execute(select(func.count()).select_from(Policy))).scalar_one()
+            total_policies = (
+                await session.execute(select(func.count()).select_from(Policy))
+            ).scalar_one()
             enabled_policies = (
-                await session.execute(select(func.count()).select_from(Policy).where(Policy.enabled.is_(True)))
+                await session.execute(
+                    select(func.count()).select_from(Policy).where(Policy.enabled.is_(True))
+                )
             ).scalar_one()
-            total_patches = (await session.execute(select(func.count()).select_from(PatchTitle))).scalar_one()
+            total_patches = (
+                await session.execute(select(func.count()).select_from(PatchTitle))
+            ).scalar_one()
             unpatched = (
                 await session.execute(
                     select(func.sum(PatchTitle.unpatched_count)).select_from(PatchTitle)
                 )
             ).scalar_one() or 0
-            total_groups = (await session.execute(select(func.count()).select_from(SmartGroup))).scalar_one()
-            total_servers = (await session.execute(select(func.count()).select_from(JamfServer))).scalar_one()
+            total_groups = (
+                await session.execute(select(func.count()).select_from(SmartGroup))
+            ).scalar_one()
+            total_servers = (
+                await session.execute(select(func.count()).select_from(JamfServer))
+            ).scalar_one()
 
         return (
             f"Current environment summary:\n"
@@ -153,6 +169,7 @@ async def _call_ollama(history: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 # Session endpoints
 # ---------------------------------------------------------------------------
+
 
 @router.get("/sessions", response_model=list[SessionResponse])
 async def list_sessions(current_user: CurrentUser) -> list[SessionResponse]:
@@ -243,6 +260,7 @@ async def get_messages(session_id: str, current_user: CurrentUser) -> list[Messa
 # ---------------------------------------------------------------------------
 # Chat endpoint — persists messages and maintains multi-turn history
 # ---------------------------------------------------------------------------
+
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(current_user: CurrentUser, body: ChatRequest) -> ChatResponse:
