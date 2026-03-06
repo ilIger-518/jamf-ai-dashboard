@@ -190,17 +190,21 @@ async def provision_server(body: ServerProvision, db: DBSession, _: AdminUser) -
         async with httpx.AsyncClient(timeout=30) as client:
             token = await _jamf_bearer_token(client, base_url, body.username, body.password)
 
-            # Create both roles (ignore if already exist)
+            # Always create the read-only role + client
             await _create_role(client, base_url, token, _READONLY_ROLE_NAME, READONLY_PRIVILEGES)
-            await _create_role(client, base_url, token, _ADMIN_ROLE_NAME, FULL_PRIVILEGES)
-
-            # Create clients and generate secrets
             ro_id, ro_secret = await _create_client(
                 client, base_url, token, _READONLY_CLIENT_NAME, _READONLY_ROLE_NAME
             )
-            adm_id, adm_secret = await _create_client(
-                client, base_url, token, _ADMIN_CLIENT_NAME, _ADMIN_ROLE_NAME
-            )
+
+            # Only create the admin role + client for the "full" preset
+            if body.preset == "full":
+                await _create_role(client, base_url, token, _ADMIN_ROLE_NAME, FULL_PRIVILEGES)
+                adm_id, adm_secret = await _create_client(
+                    client, base_url, token, _ADMIN_CLIENT_NAME, _ADMIN_ROLE_NAME
+                )
+            else:
+                # Read-only preset: use the same credentials for both slots
+                adm_id, adm_secret = ro_id, ro_secret
 
     except httpx.ConnectError:
         raise HTTPException(
@@ -227,8 +231,8 @@ async def provision_server(body: ServerProvision, db: DBSession, _: AdminUser) -
 
     return ProvisionResult(
         server=ServerResponse.model_validate(server),
-        admin_role=_ADMIN_ROLE_NAME,
-        admin_client_display_name=_ADMIN_CLIENT_NAME,
+        admin_role=_ADMIN_ROLE_NAME if body.preset == "full" else "",
+        admin_client_display_name=_ADMIN_CLIENT_NAME if body.preset == "full" else "",
         readonly_role=_READONLY_ROLE_NAME,
         readonly_client_display_name=_READONLY_CLIENT_NAME,
     )

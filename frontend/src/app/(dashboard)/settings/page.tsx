@@ -85,7 +85,7 @@ interface ProvisionResult {
   readonly_client_display_name: string;
 }
 
-type WizardStep = "form" | "preview" | "done";
+type WizardStep = "form" | "preset" | "preview" | "done";
 
 function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [step, setStep] = useState<WizardStep>("form");
@@ -95,6 +95,7 @@ function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () 
     jamf_url: "",
     username: "",
     password: "",
+    preset: "full" as "readonly" | "full",
   });
 
   const provisionMutation = useMutation<ProvisionResult, Error>({
@@ -148,7 +149,7 @@ function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () 
           </h2>
           {/* Step indicator */}
           <div className="ml-auto flex items-center gap-1 text-xs text-gray-400">
-            {(["form", "preview", "done"] as WizardStep[]).map((s, i) => (
+            {(["form", "preset", "preview", "done"] as WizardStep[]).map((s, i) => (
               <span key={s} className="flex items-center gap-1">
                 {i > 0 && <ChevronRight className="h-3 w-3" />}
                 <span
@@ -174,6 +175,17 @@ function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () 
                 Enter your Jamf Pro admin credentials. They are used once to create
                 API roles and clients — they are <strong>never stored</strong>.
               </p>
+              <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
+                <span className="mt-0.5 shrink-0">ⓘ</span>
+                <span>
+                  <strong>SSO users:</strong> these credentials must be a{" "}
+                  <strong>local Jamf Pro account</strong>. SSO/directory accounts have no
+                  local password and will be rejected by the API. If your admin account is
+                  SSO-only, create a temporary local admin in{" "}
+                  <em>Settings → System → User Accounts &amp; Groups</em>.
+                  The failover URL is not needed — the API bypasses SSO.
+                </span>
+              </div>
               {field("server_name", "Display name", "Production Jamf Pro")}
               {field("jamf_url", "Jamf Pro URL", "https://yourorg.jamfcloud.com")}
               <div className="grid grid-cols-2 gap-3">
@@ -188,7 +200,7 @@ function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () 
                   Cancel
                 </button>
                 <button
-                  onClick={() => setStep("preview")}
+                  onClick={() => setStep("preset")}
                   disabled={!form.server_name || !form.jamf_url || !form.username || !form.password}
                   className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
@@ -199,15 +211,82 @@ function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () 
             </div>
           )}
 
-          {/* ---- Step 2: Privilege preview ---- */}
+          {/* ---- Step 2: Preset selection ---- */}
+          {step === "preset" && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Choose which API client(s) to create on{" "}
+                <span className="font-medium text-gray-700 dark:text-gray-200">{form.jamf_url}</span>.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {/* Read Only card */}
+                <button
+                  onClick={() => { setForm((f) => ({ ...f, preset: "readonly" })); setStep("preview"); }}
+                  className={cn(
+                    "rounded-xl border-2 p-5 text-left transition hover:shadow-md",
+                    form.preset === "readonly"
+                      ? "border-green-500 bg-green-50 dark:border-green-500 dark:bg-green-900/20"
+                      : "border-gray-200 hover:border-green-400 dark:border-gray-700 dark:hover:border-green-600",
+                  )}
+                >
+                  <div className="mb-2 flex items-center gap-2">
+                    <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    <span className="font-semibold text-gray-900 dark:text-white">Read Only</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    AI assistant only. Can read devices, policies, groups and patches.
+                    Cannot modify anything. Best when you only need the AI chat feature.
+                  </p>
+                  <p className="mt-2 text-xs font-medium text-green-700 dark:text-green-400">
+                    Creates 1 role &amp; 1 client
+                  </p>
+                </button>
+
+                {/* Read + Write card */}
+                <button
+                  onClick={() => { setForm((f) => ({ ...f, preset: "full" })); setStep("preview"); }}
+                  className={cn(
+                    "rounded-xl border-2 p-5 text-left transition hover:shadow-md",
+                    form.preset === "full"
+                      ? "border-orange-500 bg-orange-50 dark:border-orange-500 dark:bg-orange-900/20"
+                      : "border-gray-200 hover:border-orange-400 dark:border-gray-700 dark:hover:border-orange-600",
+                  )}
+                >
+                  <div className="mb-2 flex items-center gap-2">
+                    <ShieldAlert className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                    <span className="font-semibold text-gray-900 dark:text-white">Read + Write</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Full sync + AI. All read privileges plus create, update, delete,
+                    and MDM commands. Required for scheduled data sync.
+                  </p>
+                  <p className="mt-2 text-xs font-medium text-orange-700 dark:text-orange-400">
+                    Creates 2 roles &amp; 2 clients
+                  </p>
+                </button>
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  onClick={() => setStep("form")}
+                  className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ---- Step 3: Privilege preview ---- */}
           {step === "preview" && (
             <div className="space-y-4">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                The wizard will create the following two API roles and clients on{" "}
+                {form.preset === "full"
+                  ? "The wizard will create the following two API roles and clients on"
+                  : "The wizard will create the following API role and client on"}{" "}
                 <span className="font-medium text-gray-700 dark:text-gray-200">{form.jamf_url}</span>:
               </p>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className={cn("grid gap-4", form.preset === "full" && "sm:grid-cols-2")}>
                 {/* Read-Only card */}
                 <div className="rounded-xl border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-900/20">
                   <div className="mb-2 flex items-center gap-2">
@@ -229,36 +308,39 @@ function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () 
                   </ul>
                 </div>
 
-                {/* Full Access card */}
-                <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-800 dark:bg-orange-900/20">
-                  <div className="mb-2 flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                    <span className="text-sm font-semibold text-orange-800 dark:text-orange-300">
-                      Full Access
-                    </span>
+                {/* Full Access card — only shown for full preset */}
+                {form.preset === "full" && (
+                  <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-800 dark:bg-orange-900/20">
+                    <div className="mb-2 flex items-center gap-2">
+                      <ShieldAlert className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                      <span className="text-sm font-semibold text-orange-800 dark:text-orange-300">
+                        Full Access
+                      </span>
+                    </div>
+                    <p className="mb-2 text-xs text-orange-700 dark:text-orange-400">
+                      Used for scheduled data sync — everything in Read-Only, plus:
+                    </p>
+                    <ul className="space-y-0.5">
+                      {FULL_EXTRA_PRIVILEGES.map((p) => (
+                        <li key={p} className="flex items-center gap-1.5 text-xs text-orange-700 dark:text-orange-400">
+                          <CheckCircle className="h-3 w-3 shrink-0" />
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <p className="mb-2 text-xs text-orange-700 dark:text-orange-400">
-                    Used for scheduled data sync — everything in Read-Only, plus:
-                  </p>
-                  <ul className="space-y-0.5">
-                    {FULL_EXTRA_PRIVILEGES.map((p) => (
-                      <li key={p} className="flex items-center gap-1.5 text-xs text-orange-700 dark:text-orange-400">
-                        <CheckCircle className="h-3 w-3 shrink-0" />
-                        {p}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+                )}
               </div>
 
               <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                Role names: &ldquo;Jamf AI Dashboard - Read Only&rdquo; and &ldquo;Jamf AI Dashboard - Admin&rdquo;.
-                If these roles already exist in Jamf Pro they will be reused.
+                {form.preset === "full"
+                  ? <>Role names: &ldquo;Jamf AI Dashboard - Read Only&rdquo; and &ldquo;Jamf AI Dashboard - Admin&rdquo;. If these roles already exist in Jamf Pro they will be reused.</>
+                  : <>Role name: &ldquo;Jamf AI Dashboard - Read Only&rdquo;. If this role already exists in Jamf Pro it will be reused.</>}
               </p>
 
               <div className="flex justify-end gap-2 pt-1">
                 <button
-                  onClick={() => setStep("form")}
+                  onClick={() => setStep("preset")}
                   className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
                 >
                   Back
@@ -294,10 +376,12 @@ function ProvisionWizard({ onClose, onDone }: { onClose: () => void; onDone: () 
                     <span className="font-medium">Role:</span> {result.readonly_role}
                     <span className="ml-2 text-xs text-gray-400">→ {result.readonly_client_display_name}</span>
                   </li>
+                  {form.preset === "full" && (
                   <li>
                     <span className="font-medium">Role:</span> {result.admin_role}
                     <span className="ml-2 text-xs text-gray-400">→ {result.admin_client_display_name}</span>
                   </li>
+                  )}
                 </ul>
                 <p className="mt-3 text-xs text-gray-400">
                   Credentials are encrypted and stored. The admin password was not saved.

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -75,6 +76,7 @@ class ServerProvision(BaseModel):
     jamf_url: str = Field(..., min_length=1, max_length=512)
     username: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
+    preset: Literal["readonly", "full"] = "full"
 
 
 class ProvisionedCredentials(BaseModel):
