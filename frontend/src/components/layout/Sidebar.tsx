@@ -10,6 +10,7 @@ import {
   Package,
   ClipboardCheck,
   Bot,
+  BookOpen,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { href: "/patches", label: "Patches", icon: Package },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
   { href: "/ai", label: "AI Assistant", icon: Bot },
+  { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

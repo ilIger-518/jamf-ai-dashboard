@@ -1,4 +1,4 @@
-"""AI assistant router — calls local Ollama for chat completions."""
+"""AI assistant router — calls local Ollama for chat completions with optional RAG."""
 
 import logging
 
@@ -15,13 +15,15 @@ from app.models.patch import PatchTitle
 from app.models.policy import Policy
 from app.models.server import JamfServer
 from app.models.smart_group import SmartGroup
+from app.services.vector_store import query_similar
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 SYSTEM_PROMPT = """You are a helpful assistant for a Jamf Pro monitoring dashboard.
-You have access to live summary statistics about the managed environment (provided below).
+You have access to live summary statistics about the managed environment and, when available,
+relevant documentation retrieved from the knowledge base.
 Answer questions about devices, policies, patch management, compliance, and Jamf Pro configuration.
 Be concise and precise. If you don't know something, say so rather than guessing.
 Do not invent device names, serial numbers, or policy details that are not in the data provided."""
@@ -76,8 +78,19 @@ async def chat(_: CurrentUser, body: ChatRequest) -> ChatResponse:
     settings = get_settings()
     context = await _get_context_stats()
 
+    # RAG: retrieve relevant chunks from the knowledge base
+    rag_chunks = await query_similar(body.message, n_results=5)
+    sources: list[str] = []
+    rag_context = ""
+    if rag_chunks:
+        rag_context = "\n\nRelevant documentation from the knowledge base:\n"
+        for chunk in rag_chunks:
+            rag_context += f"\n---\nSource: {chunk['source']}\n{chunk['text']}\n"
+            if chunk["source"] not in sources:
+                sources.append(chunk["source"])
+
     messages = [
-        {"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{context}"},
+        {"role": "system", "content": f"{SYSTEM_PROMPT}\n\n{context}{rag_context}"},
         {"role": "user", "content": body.message},
     ]
 
@@ -118,4 +131,4 @@ async def chat(_: CurrentUser, body: ChatRequest) -> ChatResponse:
         logger.exception("Unexpected AI error: %s", exc)
         raise HTTPException(status_code=500, detail="Unexpected error calling the AI service.")
 
-    return ChatResponse(reply=reply, sources=[])
+    return ChatResponse(reply=reply, sources=sources)

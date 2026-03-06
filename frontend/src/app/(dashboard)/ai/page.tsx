@@ -2,13 +2,14 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Bot, Send, User } from "lucide-react";
+import { Bot, Send, User, BookOpen } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  sources?: string[];
 }
 
 export default function AiAssistantPage() {
@@ -24,7 +25,7 @@ export default function AiAssistantPage() {
     mutationFn: (message: string) =>
       api.post<{ reply: string; sources: string[] }>("/ai/chat", { message }).then((r) => r.data),
     onSuccess: (data) => {
-      setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
+      setMessages((m) => [...m, { role: "assistant", content: data.reply, sources: data.sources }]);
     },
     onError: (err: unknown) => {
       const detail =
@@ -74,6 +75,24 @@ export default function AiAssistantPage() {
                     : "bg-gray-100 text-gray-900 dark:bg-gray-800 dark:text-white"
                 )}>
                   {msg.content}
+                  {msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-2 border-t border-gray-200 pt-2 dark:border-gray-700">
+                      <p className="mb-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                        <BookOpen className="h-3 w-3" /> Sources
+                      </p>
+                      {msg.sources.map((s) => (
+                        <a
+                          key={s}
+                          href={s}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="block truncate text-xs text-blue-600 hover:underline dark:text-blue-400"
+                        >
+                          {s.replace(/^https?:\/\//, "")}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {msg.role === "user" && (
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700">

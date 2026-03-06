@@ -20,10 +20,10 @@ A self-hosted web dashboard for monitoring and managing devices across one or mo
 └────────────────────────┬─────────────────────────────────────┘
                          │ HTTP / SSE
 ┌────────────────────────▼─────────────────────────────────────┐
-│              FastAPI backend (Python 3.12)                    │
+│              FastAPI backend (Python 3.12)                   │
 │  Auth · Devices · Policies · Patches · Compliance · AI Chat  │
-│           APScheduler sync · Redis cache                      │
-└──────┬─────────────┬──────────────┬───────────────────────────┘
+│           APScheduler sync · Redis cache                     │
+└──────┬─────────────┬──────────────┬──────────────────────────┘
        │             │              │
   PostgreSQL      Redis        ChromaDB
   (ORM data)   (cache/tokens) (vector store)
