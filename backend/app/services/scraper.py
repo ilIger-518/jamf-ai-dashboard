@@ -363,9 +363,11 @@ async def run_scrape_job(job_id: str) -> None:
                             select(KnowledgeDocument).where(KnowledgeDocument.source == url)
                         )
                     ).scalar_one_or_none()
+                    doc_size = len(text.encode("utf-8", errors="replace"))
                     if existing:
                         existing.chunk_count = chunk_count
                         existing.title = title
+                        existing.size_bytes = doc_size
                     else:
                         session.add(
                             KnowledgeDocument(
@@ -373,6 +375,7 @@ async def run_scrape_job(job_id: str) -> None:
                                 source=url,
                                 doc_type="url",
                                 chunk_count=chunk_count,
+                                size_bytes=doc_size,
                                 collection_name="jamf_knowledge",
                             )
                         )

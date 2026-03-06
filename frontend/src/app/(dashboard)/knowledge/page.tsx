@@ -40,7 +40,15 @@ interface KnowledgeSource {
   source: string;
   doc_type: string;
   chunk_count: number;
+  size_bytes: number;
   ingested_at: string;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1048576).toFixed(2)} MB`;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -392,7 +400,7 @@ export default function KnowledgePage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                 <tr>
-                  {["Title", "URL", "Chunks", "Ingested", ""].map((h) => (
+                  {["Title", "URL", "Chunks", "Size", "Ingested", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -410,6 +418,9 @@ export default function KnowledgePage() {
                       </a>
                     </td>
                     <td className="px-4 py-3 text-gray-500">{s.chunk_count}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                      {formatBytes(s.size_bytes)}
+                    </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {new Date(s.ingested_at).toLocaleDateString()}
                     </td>

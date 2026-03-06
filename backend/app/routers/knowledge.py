@@ -69,6 +69,7 @@ class SourceResponse(BaseModel):
     source: str
     doc_type: str
     chunk_count: int
+    size_bytes: int
     ingested_at: str
 
     @classmethod
@@ -79,6 +80,7 @@ class SourceResponse(BaseModel):
             source=doc.source,
             doc_type=doc.doc_type,
             chunk_count=doc.chunk_count,
+            size_bytes=doc.size_bytes,
             ingested_at=doc.ingested_at.isoformat(),
         )
 
