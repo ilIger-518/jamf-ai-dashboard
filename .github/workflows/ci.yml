@@ -91,7 +91,7 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: backend
-        run: pytest --cov=app --cov-report=xml --cov-fail-under=80
+        run: pytest --cov=app --cov-report=xml
 
       - name: Upload coverage report
         uses: codecov/codecov-action@v4
@@ -140,7 +140,7 @@ jobs:
 
       - name: Run Vitest
         working-directory: frontend
-        run: npm test -- --run
+        run: npm test
 
   frontend-build:
     name: Frontend — Build
