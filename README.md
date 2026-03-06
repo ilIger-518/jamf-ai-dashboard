@@ -9,7 +9,10 @@ A self-hosted web dashboard for monitoring and managing devices across one or mo
 - **Policies & Smart Groups** — browse, inspect, and search all policies and group membership
 - **Patch management** — track patched vs. unpatched counts per software title
 - **AI assistant** — ask questions about your fleet, get Jamf policy/script generation help, analyze scripts, and query the knowledge base — all powered by a local LLM (no data leaves your network)
+- **Per-user chat sessions** — ChatGPT-style sidebar with named sessions; create, rename, delete, and resume conversations across page reloads
 - **Read-only AI enforcement** — the AI can only read data; any write action requires explicit user approval with a full command preview
+- **RAG knowledge base** — scrape Jamf documentation and custom runbooks; built-in BFS scraper with sitemap seeding and Zoomin SPA support
+- **Knowledge source storage tracking** — each scraped document stores its size in bytes, shown as a human-readable value in the Knowledge Base UI
 
 ## Architecture
 
@@ -108,12 +111,14 @@ npm run dev
 # Backend
 cd backend && pytest --cov=app --cov-report=term-missing
 
-# Frontend unit tests
+# Frontend unit tests (Vitest)
 cd frontend && npm test
 
 # Frontend E2E (Playwright)
 cd frontend && npx playwright test
 ```
+
+Backend test configuration is in `backend/pyproject.toml`. Frontend Vitest configuration is in `frontend/vitest.config.ts`.
 
 ## Contributing
 

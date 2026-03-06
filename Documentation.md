@@ -1,6 +1,6 @@
 # Jamf AI Dashboard — Documentation
 
-> **Version:** 0.1.0 · **Stack:** FastAPI 0.115 · Next.js 16 · PostgreSQL 16 · Redis 7 · ChromaDB · Ollama
+> **Version:** 0.5.0 · **Stack:** FastAPI 0.115 · Next.js 16 · PostgreSQL 16 · Redis 7 · ChromaDB · Ollama
 
 ---
 
@@ -32,7 +32,8 @@
    - 8.2 [Read-Only Enforcement](#82-read-only-enforcement)
    - 8.3 [Human-in-the-Loop Approval Flow](#83-human-in-the-loop-approval-flow)
    - 8.4 [RAG Knowledge Base](#84-rag-knowledge-base)
-   - 8.5 [Ollama Models](#85-ollama-models)
+   - 8.5 [Per-User Chat Sessions](#85-per-user-chat-sessions)
+   - 8.6 [Ollama Models](#86-ollama-models)
 9. [Jamf Pro Integration](#9-jamf-pro-integration)
    - 9.1 [API Credentials Setup](#91-api-credentials-setup)
    - 9.2 [Multi-Server Support](#92-multi-server-support)
@@ -304,24 +305,27 @@ backend/
 │   │   ├── smart_group.py
 │   │   ├── patch.py         # PatchTitle
 │   │   ├── compliance.py    # ComplianceResult, SecurityStatus
-│   │   ├── ai.py            # ChatSession, ChatMessage, PendingAction, AiToolAuditLog
-│   │   └── knowledge.py     # KnowledgeDocument
+│   │   ├── ai.py            # ChatSession (per-user, titled), ChatMessage, PendingAction, AiToolAuditLog
+│   │   └── knowledge.py     # KnowledgeDocument (with size_bytes)
 │   ├── schemas/             # Pydantic v2 request/response schemas
 │   │   └── auth.py
 │   ├── routers/             # FastAPI APIRouter per domain
 │   │   ├── auth.py          # POST /auth/register, login, refresh, logout; GET /auth/me
-│   │   └── health.py        # GET /health
+│   │   ├── health.py        # GET /health
+│   │   ├── servers.py       # GET/POST/PUT/DELETE /servers
+│   │   ├── knowledge.py     # GET /knowledge/sources; POST /knowledge/scrape
+│   │   └── ai.py            # POST /ai/chat; GET/POST/DELETE /ai/sessions; GET /ai/sessions/{id}/messages
 │   ├── services/
 │   │   ├── auth.py          # AuthService (hashing, JWT, Redis token store)
-│   │   ├── jamf/            # Jamf API client (planned)
-│   │   └── ai/              # LLM + RAG logic (planned)
-│   ├── crud/                # Database CRUD helpers (planned)
-│   └── utils/               # Utility functions (planned)
+│   │   ├── scraper.py       # BFS web scraper with sitemap seeding and Zoomin API support
+│   │   └── vector_store.py  # ChromaDB wrapper — upsert, similarity search, delete
+│   └── utils/               # Utility functions
 ├── alembic/
 │   ├── env.py               # Async Alembic environment
 │   ├── script.py.mako       # Migration template
 │   └── versions/            # Generated migration files
 ├── tests/
+├── pyproject.toml           # ruff, mypy, pytest, coverage configuration
 ├── Dockerfile               # Multi-stage Python 3.12-slim image
 ├── entrypoint.sh            # Runs `alembic upgrade head` then starts uvicorn
 ├── requirements.txt
@@ -427,26 +431,36 @@ The full interactive API reference is available at `/docs` (Swagger UI) or `/red
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/health` | None | Liveness check — probes DB and Redis |
+| `GET` | `/metrics` | None | Prometheus metrics |
 | `POST` | `/api/v1/auth/register` | None* | Register a new user |
 | `POST` | `/api/v1/auth/login` | None | Obtain access + refresh tokens |
 | `POST` | `/api/v1/auth/refresh` | Cookie | Rotate access token |
 | `POST` | `/api/v1/auth/logout` | Bearer | Invalidate refresh token |
 | `GET` | `/api/v1/auth/me` | Bearer | Get current user info |
-| `GET` | `/metrics` | None | Prometheus metrics |
+| `GET` | `/api/v1/servers` | Bearer | List all configured Jamf servers |
+| `POST` | `/api/v1/servers` | Bearer/Admin | Add a new Jamf server |
+| `PUT` | `/api/v1/servers/{id}` | Bearer/Admin | Update a Jamf server |
+| `DELETE` | `/api/v1/servers/{id}` | Bearer/Admin | Remove a Jamf server |
+| `GET` | `/api/v1/knowledge/sources` | Bearer | List scraped knowledge sources (includes `size_bytes`) |
+| `POST` | `/api/v1/knowledge/scrape` | Bearer/Admin | Trigger a scrape job for a given URL |
+| `GET` | `/api/v1/ai/sessions` | Bearer | List the current user's chat sessions (newest first) |
+| `POST` | `/api/v1/ai/sessions` | Bearer | Create an empty named chat session |
+| `DELETE` | `/api/v1/ai/sessions/{id}` | Bearer | Delete a session (ownership-checked) |
+| `GET` | `/api/v1/ai/sessions/{id}/messages` | Bearer | Get all messages in a session (oldest first) |
+| `POST` | `/api/v1/ai/chat` | Bearer | Send a message; optionally pass `session_id` to continue an existing session |
 
-*The first `register` call creates an admin. Subsequent calls require admin authentication (planned).
+*The first `register` call creates an admin. Subsequent calls require admin authentication.
 
-#### Planned endpoints (see TODO.md)
+`POST /api/v1/ai/chat` request body:
 
-- `GET/POST/PUT/DELETE /api/v1/servers` — Jamf server management
-- `GET /api/v1/devices`, `GET /api/v1/devices/{id}` — device listing and detail
-- `GET /api/v1/policies`, `GET /api/v1/smart-groups`, `GET /api/v1/patches`, `GET /api/v1/compliance`
-- `POST /api/v1/ai/chat` — streaming AI chat (SSE)
-- `GET/POST /api/v1/ai/sessions` — chat session management
-- `POST /api/v1/ai/pending-actions/{id}/approve` — approve a pending AI write action
-- `POST /api/v1/ai/pending-actions/{id}/reject` — reject a pending AI write action
-- `GET /api/v1/ai/audit-log` — AI tool call audit log (admin only)
-- `GET /api/v1/dashboard` — aggregated KPI data for the dashboard overview
+```json
+{
+  "message": "How do I create a Smart Group?",
+  "session_id": "optional-uuid-to-continue-existing-session"
+}
+```
+
+Response includes `session_id` so the client can link replies to the correct session.
 
 ### 6.6 Caching (Redis)
 
@@ -490,28 +504,32 @@ frontend/src/
 │   │   ├── smart-groups/page.tsx
 │   │   ├── patches/page.tsx
 │   │   ├── compliance/page.tsx
-│   │   ├── ai/page.tsx          # AI assistant chat interface
+│   │   ├── ai/page.tsx          # AI assistant — ChatGPT-style chat with session sidebar
+│   │   ├── knowledge/page.tsx   # Knowledge Base management (sources + size)
 │   │   └── settings/page.tsx
 │   ├── globals.css
 │   ├── layout.tsx               # Root layout: Providers (QueryClient + Toaster)
 │   └── page.tsx                 # Redirects to /login
+├── __tests__/
+│   └── utils.test.ts            # Vitest unit tests (cn, formatBytes helpers)
 ├── components/
 │   ├── layout/
 │   │   ├── Sidebar.tsx          # Collapsible navigation sidebar
 │   │   └── TopNav.tsx           # Top bar with user info + sign-out
-│   ├── ai/                      # AI chat components (planned)
-│   ├── dashboard/               # KPI cards, charts (planned)
-│   ├── devices/                 # Device table and detail (planned)
-│   ├── policies/                # Policy table (planned)
+│   ├── ai/
+│   │   └── ChatSessionSidebar.tsx  # Left sidebar: session list, New Chat, rename, delete
+│   ├── dashboard/               # KPI cards, charts
+│   ├── devices/                 # Device table and detail
+│   ├── policies/                # Policy table
 │   ├── shared/
 │   │   └── Providers.tsx        # QueryClientProvider + Toaster + devtools
-│   └── ui/                      # shadcn/ui generated components (planned)
+│   └── ui/                      # shadcn/ui generated components
 ├── hooks/
 │   └── useRequireAuth.ts        # Auth guard hook (redirects to /login if unauthed)
 ├── lib/
 │   ├── api.ts                   # Axios instance with auth interceptors
 │   ├── queryClient.ts           # TanStack Query client configuration
-│   └── utils.ts                 # cn() helper (clsx + tailwind-merge)
+│   └── utils.ts                 # cn() helper (clsx + tailwind-merge); formatBytes()
 ├── store/
 │   ├── authStore.ts             # Zustand auth slice (token in memory)
 │   └── uiStore.ts               # Zustand UI slice (sidebar, theme — persisted)
@@ -570,6 +588,8 @@ Two Zustand stores manage global client state:
 | `toggleSidebar()` | action | Toggle sidebar |
 | `setSelectedServer(id)` | action | Change active server filter |
 | `setTheme(theme)` | action | Change color theme |
+
+Chat session state is managed locally in the AI page component using React state, with TanStack Query handling server-side fetching of the session list and message history. The active session ID is kept in component state and passed to `POST /ai/chat` on every message.
 
 ### 7.4 API Client
 
@@ -694,15 +714,25 @@ All actions (approved, rejected, and auto-READ calls) are recorded permanently i
 
 ### 8.4 RAG Knowledge Base
 
-The knowledge base stores Jamf Pro documentation, best practice guides, custom runbooks, and any other documents you ingest. Documents are chunked, embedded via `nomic-embed-text`, and stored in ChromaDB.
+The knowledge base stores Jamf Pro documentation, best practice guides, custom runbooks, and any other documents you ingest. Documents are chunked, embedded via `nomic-embed-text`, and stored in ChromaDB. Each document also records its `size_bytes` for display in the Knowledge Base management UI.
 
-**Ingesting documents (planned CLI):**
+**Web scraper**
+
+The built-in BFS web scraper (`services/scraper.py`) can crawl any URL and extract clean text:
+
+- **Sitemap seeding** — if `sitemap.xml` is present at the root, URLs are pre-seeded from it for efficient coverage
+- **Zoomin Software SPA support** — for Jamf’s learn portal (`learn.jamf.com`), the scraper calls the Zoomin backend API directly (`https://learn-be.jamf.com/api/bundle/{bundle}/page/{topic}.html`) to bypass client-side rendering
+- **Login-redirect detection** — pages that redirect to a login wall are skipped automatically
+- **Clean text extraction** — prefers `<main>` then `<article>` then `<body>`; strips navigation, scripts, and style elements
+- **Deduplication** — already-indexed URLs are skipped on re-scrape
+
+To trigger a scrape from the UI: go to **Knowledge Base** → enter a URL → click **Scrape**. To trigger via API:
 
 ```bash
-cd backend
-python -m app.services.ai.ingest \
-  --source path/to/docs/ \
-  --type pdf        # or: markdown, txt, url
+curl -s -X POST http://localhost:8000/api/v1/knowledge/scrape \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://learn.jamf.com/en-US/bundle/jamf-pro-documentation-current/"}'
 ```
 
 The RAG pipeline:
@@ -712,7 +742,49 @@ The RAG pipeline:
 4. Injects the chunks into the LLM prompt as context
 5. Returns the response with source citations (displayed in the chat UI)
 
-### 8.5 Ollama Models
+**Knowledge source storage size**
+
+Each `KnowledgeDocument` row stores a `size_bytes` integer. The Knowledge Base page displays this as a human-readable size (e.g., `14.2 KB`, `2.3 MB`) using the `formatBytes()` helper in `lib/utils.ts`.
+
+### 8.5 Per-User Chat Sessions
+
+Each user has their own isolated set of chat sessions — users never see each other’s conversations.
+
+**Session lifecycle**
+
+| Event | Behaviour |
+|-------|----------|
+| First message without `session_id` | A new session is automatically created; its title is set to the first 60 characters of the opening message |
+| Subsequent messages with `session_id` | The message is appended to the existing session; full history is sent to Ollama for multi-turn context |
+| `POST /ai/sessions` | Creates an empty session with a user-supplied title |
+| `DELETE /ai/sessions/{id}` | Deletes the session and all its messages; ownership verified before deletion |
+
+**Session list ordering** — sessions are returned newest-first by `updated_at`, so the most recent conversation is always at the top.
+
+**Chat UI (AI page)**
+
+The AI page renders a **ChatGPT-style two-panel layout**:
+
+```
+┌────────────────────────────────────────────────┐
+│  Session sidebar       │  Chat area              │
+│  ┌─────────────────┐  │  [message bubbles]      │
+│  │ + New Chat        │  │                        │
+│  ├─────────────────┤  │  [input box]           │
+│  │ Session A ✏ 🗑️  │  │  [send button]         │
+│  │ Session B ✏ 🗑️  │  │                        │
+│  └─────────────────┘  │                        │
+└────────────────────────────────────────────────┘
+```
+
+- **New Chat** — creates a fresh session and clears the chat area
+- **Rename** (pencil icon) — inline rename of the session title
+- **Delete** (trash icon) — deletes the session after confirmation
+- Clicking any session in the sidebar loads its full message history
+
+---
+
+### 8.6 Ollama Models
 
 Models must be pulled into the Ollama service before use:
 
@@ -894,7 +966,7 @@ source .venv/bin/activate
 pytest
 
 # With coverage report
-pytest --cov=app --cov-report=term-missing --cov-fail-under=80
+pytest --cov=app --cov-report=term-missing
 
 # Run a specific test file
 pytest tests/test_auth.py -v
@@ -903,7 +975,13 @@ pytest tests/test_auth.py -v
 pytest -m "not integration"
 ```
 
-Tests use `pytest-asyncio` for async test functions and `httpx.AsyncClient` as the test client for FastAPI endpoints.
+Tests use `pytest-asyncio` for async test functions and `httpx.AsyncClient` as the test client for FastAPI endpoints. Configuration is in `backend/pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+```
 
 ### Frontend
 
@@ -923,17 +1001,21 @@ npx playwright test
 npx playwright test --ui
 ```
 
+Vitest configuration is in `frontend/vitest.config.ts` (jsdom environment, `@` path alias). Placeholder unit tests live in `frontend/src/__tests__/`.
+
 ### CI
 
 GitHub Actions runs the full pipeline on every push and pull request:
 
-1. **Lint** — `ruff check` (Python), `eslint` (TypeScript)
-2. **Format check** — `ruff format --check`, `prettier --check`
-3. **Type check** — `mypy`, `tsc --noEmit`
-4. **Unit tests** — `pytest`, `vitest`
-5. **Build** — `docker build` (backend), `next build` (frontend)
+1. **`backend-lint`** — `ruff check .` + `ruff format --check .` + `mypy app/`
+2. **`backend-test`** — `pytest` (asyncio mode auto, source coverage)
+3. **`frontend-lint`** — `next lint` (Next.js built-in ESLint runner)
+4. **`frontend-test`** — `npm test` (Vitest)
+5. **`frontend-build`** — `next build`
 
 See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the full workflow definition.
+
+Python tooling is configured via `backend/pyproject.toml` (ruff, mypy, pytest, coverage). Frontend tooling uses `frontend/vitest.config.ts` and Next.js’s built-in ESLint configuration.
 
 ---
 
@@ -1049,4 +1131,4 @@ pre-commit install
 
 ---
 
-*Last updated: March 2026 — v0.1.0*
+*Last updated: March 2026 — v0.5.0*
