@@ -1,7 +1,7 @@
 """FastAPI application factory."""
 
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI, Request
@@ -12,7 +12,18 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.cache import close_redis, get_redis
 from app.config import get_settings
 from app.database import engine
-from app.routers import ai, auth, dashboard, devices, health, knowledge, patches, policies, servers, smart_groups
+from app.routers import (
+    ai,
+    auth,
+    dashboard,
+    devices,
+    health,
+    knowledge,
+    patches,
+    policies,
+    servers,
+    smart_groups,
+)
 
 logger = structlog.get_logger(__name__)
 

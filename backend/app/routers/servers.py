@@ -3,12 +3,12 @@
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.dependencies import AdminUser, CurrentUser, DBSession
 from app.models.server import JamfServer
 from app.schemas.servers import ServerCreate, ServerResponse, ServerUpdate
-from app.services.encryption import decrypt, encrypt
+from app.services.encryption import encrypt
 
 router = APIRouter(prefix="/servers", tags=["servers"])
 

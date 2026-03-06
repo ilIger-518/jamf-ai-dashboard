@@ -18,7 +18,7 @@ import logging
 import re
 import uuid
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -246,7 +246,7 @@ async def run_scrape_job(job_id: str) -> None:
         topic_filter = job.topic_filter or ""
 
         job.status = "running"
-        job.started_at = datetime.now(timezone.utc)
+        job.started_at = datetime.now(UTC)
         await session.commit()
 
     visited: set[str] = set()
@@ -419,7 +419,7 @@ async def run_scrape_job(job_id: str) -> None:
             job_row.pages_scraped = pages_scraped
             job_row.pages_found = len(visited)
             job_row.bytes_scraped = bytes_scraped
-            job_row.finished_at = datetime.now(timezone.utc)
+            job_row.finished_at = datetime.now(UTC)
             if errors:
                 job_row.error = f"{len(errors)} page(s) failed. First: {errors[0]}"
             await session.commit()

@@ -112,7 +112,7 @@ async def query_similar(query: str, n_results: int = 5) -> list[dict[str, Any]]:
 
     hits: list[dict[str, Any]] = []
     if results and results.get("documents"):
-        for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
+        for doc, meta in zip(results["documents"][0], results["metadatas"][0], strict=False):
             hits.append({"text": doc, "source": meta.get("source", ""), "title": meta.get("title", "")})
     return hits
 

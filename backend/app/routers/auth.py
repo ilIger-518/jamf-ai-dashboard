@@ -5,7 +5,6 @@ from sqlalchemy import select
 
 from app.cache import get_redis
 from app.config import get_settings
-from app.database import get_db
 from app.dependencies import CurrentUser, DBSession
 from app.models.user import User
 from app.schemas.auth import (
@@ -31,8 +30,6 @@ COOKIE_SAMESITE = "lax"
     summary="Register a new user (first user becomes admin; subsequent users require admin auth)",
 )
 async def register(body: RegisterRequest, db: DBSession) -> UserResponse:
-    redis = await get_redis()
-
     # First-ever user is automatically an admin (bootstrap)
     is_first_user = (await AuthService.get_user_count(db)) == 0
 

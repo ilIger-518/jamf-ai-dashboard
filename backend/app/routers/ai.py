@@ -2,6 +2,7 @@
 
 import logging
 import uuid as uuid_lib
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
@@ -326,8 +327,7 @@ async def chat(current_user: CurrentUser, body: ChatRequest) -> ChatResponse:
         # Touch updated_at on the session so it floats to the top of the list
         sess = await db.get(ChatSession, uuid_lib.UUID(session_id_str))
         if sess:
-            from datetime import datetime, timezone
-            sess.updated_at = datetime.now(timezone.utc)
+            sess.updated_at = datetime.now(UTC)
 
         await db.commit()
 

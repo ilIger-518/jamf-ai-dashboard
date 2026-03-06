@@ -1,11 +1,10 @@
 """Knowledge base router — manage scrape jobs and stored knowledge sources."""
 
-import asyncio
 import logging
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
