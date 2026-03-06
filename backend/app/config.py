@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # ── CORS ────────────────────────────────────────────────────
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # ── Cookie ──────────────────────────────────────────────────
+    cookie_secure: bool = False  # set True in production (requires HTTPS)
+
     # ── Logging ─────────────────────────────────────────────────
     log_level: str = "INFO"
 
@@ -53,7 +56,7 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
 
     @property

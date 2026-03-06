@@ -10,9 +10,16 @@ import { useAuthStore } from "@/store/authStore";
  */
 export function useRequireAuth({ adminOnly = false } = {}) {
   const router = useRouter();
-  const { accessToken, user, isLoading, fetchMe } = useAuthStore();
+  const { accessToken, user, isLoading, hasHydrated, fetchMe, initialize } = useAuthStore();
 
   useEffect(() => {
+    if (!hasHydrated) {
+      // First mount: try to restore the session from the refresh-token cookie.
+      // initialize() will set hasHydrated=true when done, re-triggering this effect.
+      initialize();
+      return;
+    }
+
     if (!accessToken) {
       router.replace("/login");
       return;
@@ -20,7 +27,7 @@ export function useRequireAuth({ adminOnly = false } = {}) {
     if (!user && !isLoading) {
       fetchMe();
     }
-  }, [accessToken, user, isLoading, fetchMe, router]);
+  }, [accessToken, user, isLoading, hasHydrated, fetchMe, initialize, router]);
 
   useEffect(() => {
     if (adminOnly && user && !user.is_admin) {
@@ -28,5 +35,6 @@ export function useRequireAuth({ adminOnly = false } = {}) {
     }
   }, [adminOnly, user, router]);
 
-  return { user, isLoading };
+  // Show spinner while restoring session OR while a fetch is in-flight.
+  return { user, isLoading: isLoading || !hasHydrated };
 }

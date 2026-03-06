@@ -1,15 +1,15 @@
 """Authentication router: register, login, refresh, logout, me."""
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, HTTPException, Response, status
 from sqlalchemy import select
 
 from app.cache import get_redis
+from app.config import get_settings
 from app.database import get_db
 from app.dependencies import CurrentUser, DBSession
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
-    RefreshRequest,
     RegisterRequest,
     TokenResponse,
     UserResponse,
@@ -19,7 +19,7 @@ from app.services.auth import AuthService
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 REFRESH_COOKIE = "refresh_token"
-COOKIE_SECURE = True
+COOKIE_SECURE = get_settings().cookie_secure
 COOKIE_HTTPONLY = True
 COOKIE_SAMESITE = "lax"
 
@@ -96,9 +96,17 @@ async def login(body: LoginRequest, response: Response, db: DBSession) -> TokenR
     response_model=TokenResponse,
     summary="Rotate access token using the refresh token cookie",
 )
-async def refresh_token(response: Response, body: RefreshRequest) -> TokenResponse:
+async def refresh_token(
+    response: Response,
+    refresh_token: str | None = Cookie(default=None),
+) -> TokenResponse:
     redis = await get_redis()
-    user_id = await AuthService.validate_refresh_token(body.refresh_token, redis)
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No refresh token cookie",
+        )
+    user_id = await AuthService.validate_refresh_token(refresh_token, redis)
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

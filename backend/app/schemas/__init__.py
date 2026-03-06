@@ -2,7 +2,6 @@
 
 from app.schemas.auth import (
     LoginRequest,
-    RefreshRequest,
     RegisterRequest,
     TokenResponse,
     UserResponse,
@@ -10,7 +9,6 @@ from app.schemas.auth import (
 
 __all__ = [
     "LoginRequest",
-    "RefreshRequest",
     "RegisterRequest",
     "TokenResponse",
     "UserResponse",

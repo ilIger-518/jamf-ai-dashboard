@@ -12,8 +12,10 @@ interface AuthState {
   accessToken: string | null;
   user: AuthUser | null;
   isLoading: boolean;
+  hasHydrated: boolean;
   setAccessToken: (token: string) => void;
   setUser: (user: AuthUser) => void;
+  initialize: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
@@ -23,18 +25,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: null,
   user: null,
   isLoading: false,
+  hasHydrated: false,
 
   setAccessToken: (token) => set({ accessToken: token }),
   setUser: (user) => set({ user }),
 
+  /**
+   * Called once on app mount to restore a session from the refresh-token cookie.
+   * Sets hasHydrated=true when complete (whether or not the session was restored).
+   */
+  initialize: async () => {
+    if (get().hasHydrated) return;
+    try {
+      // The httpOnly refresh-token cookie is sent automatically via withCredentials.
+      const { data } = await api.post<{ access_token: string }>("/auth/refresh", {});
+      set({ accessToken: data.access_token });
+      const { data: me } = await api.get<AuthUser>("/auth/me");
+      set({ user: me, hasHydrated: true });
+    } catch {
+      // No valid session — land on login page.
+      set({ accessToken: null, user: null, hasHydrated: true });
+    }
+  },
+
   login: async (username, password) => {
     set({ isLoading: true });
     try {
-      const { data } = await api.post<{ access_token: string; user: AuthUser }>("/auth/login", {
+      const { data } = await api.post<{ access_token: string }>("/auth/login", {
         username,
         password,
       });
-      set({ accessToken: data.access_token, user: data.user });
+      set({ accessToken: data.access_token });
+      // Backend /login returns only a token; fetch the profile separately.
+      const { data: me } = await api.get<AuthUser>("/auth/me");
+      set({ user: me, hasHydrated: true });
     } finally {
       set({ isLoading: false });
     }
@@ -49,7 +73,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       // ignore errors on logout
     } finally {
-      set({ accessToken: null, user: null });
+      set({ accessToken: null, user: null, hasHydrated: true });
     }
   },
 
@@ -57,9 +81,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isLoading: true });
     try {
       const { data } = await api.get<AuthUser>("/auth/me");
-      set({ user: data });
+      set({ user: data, hasHydrated: true });
     } catch {
-      set({ accessToken: null, user: null });
+      set({ accessToken: null, user: null, hasHydrated: true });
     } finally {
       set({ isLoading: false });
     }

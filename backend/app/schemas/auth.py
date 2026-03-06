@@ -33,10 +33,6 @@ class TokenResponse(BaseModel):
     expires_in: int  # seconds
 
 
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
 class UserResponse(BaseModel):
     id: uuid.UUID
     username: str

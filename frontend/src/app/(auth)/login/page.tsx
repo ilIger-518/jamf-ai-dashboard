@@ -19,7 +19,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, accessToken } = useAuthStore();
+  const { login, isLoading, accessToken, hasHydrated } = useAuthStore();
 
   const {
     register,
@@ -29,16 +29,17 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
+  // Only redirect away from login once we know for sure the user is authenticated.
   useEffect(() => {
-    if (accessToken) {
+    if (hasHydrated && accessToken) {
       router.replace("/");
     }
-  }, [accessToken, router]);
+  }, [accessToken, hasHydrated, router]);
 
   const onSubmit = async (values: LoginFormValues) => {
     try {
       await login(values.username, values.password);
-      router.replace("/");
+      // hasHydrated will be true after login, the effect above handles the redirect.
     } catch {
       toast.error("Invalid username or password");
     }
