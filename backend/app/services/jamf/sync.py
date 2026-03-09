@@ -22,8 +22,10 @@ from sqlalchemy import select
 from app.cache import get_redis
 from app.database import AsyncSessionLocal
 from app.models.device import Device
+from app.models.patch import PatchTitle
 from app.models.policy import Policy
 from app.models.server import JamfServer
+from app.models.smart_group import SmartGroup
 from app.services.encryption import decrypt
 
 logger = logging.getLogger(__name__)
@@ -242,13 +244,35 @@ async def _sync_computers_v1(
 
 # ---------------------------------------------------------------------------
 # Strategy 3: /JSSResource/computers  (Classic API — all versions)
-# Returns all computers in one call, basic fields only
+# Fetches list for IDs, then per-device detail for hardware/OS fields
 # ---------------------------------------------------------------------------
+
+async def _fetch_computer_detail_classic(
+    client: httpx.AsyncClient,
+    base_url: str,
+    token: str,
+    jamf_id: int,
+    semaphore: asyncio.Semaphore,
+) -> dict | None:
+    async with semaphore:
+        try:
+            resp = await client.get(
+                f"{base_url}/JSSResource/computers/id/{jamf_id}",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            )
+            if resp.status_code != 200:
+                logger.warning("Skipping computer %d detail: HTTP %d", jamf_id, resp.status_code)
+                return None
+            return resp.json().get("computer", {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Error fetching computer %d detail: %s", jamf_id, exc)
+            return None
+
 
 async def _sync_computers_classic(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
 ) -> int:
-    """Fall back to classic Jamf API. Returns upsert count."""
+    """Fall back to classic Jamf API. Fetches per-device detail for full hardware info."""
     base_url = server.url
     resp = await client.get(
         f"{base_url}/JSSResource/computers",
@@ -259,27 +283,45 @@ async def _sync_computers_classic(
             f"GET /JSSResource/computers returned {resp.status_code}: {resp.text[:200]}"
         )
 
-    computers = resp.json().get("computers", [])
-    total_upserted = 0
+    stubs = resp.json().get("computers", [])
+    valid_ids = [int(c["id"]) for c in stubs if c.get("id")]
 
-    for comp in computers:
-        jamf_id = int(comp.get("id", 0))
-        if not jamf_id:
+    # Fetch full detail concurrently (max 10 in-flight)
+    semaphore = asyncio.Semaphore(10)
+    details = await asyncio.gather(
+        *[_fetch_computer_detail_classic(client, base_url, token, jid, semaphore) for jid in valid_ids]
+    )
+
+    total_upserted = 0
+    for jamf_id, detail in zip(valid_ids, details):
+        if detail is None:
             continue
 
+        general = detail.get("general") or {}
+        hardware = detail.get("hardware") or {}
+        location = detail.get("location") or {}
+        remote_mgmt = general.get("remote_management") or {}
+
         await _upsert_device(db_session, server.id, jamf_id, {
-            "name": comp.get("name") or f"Computer {jamf_id}",
-            "udid": comp.get("udid"),
-            "serial_number": comp.get("serial_number"),
-            "model": comp.get("model"),
-            "os_version": comp.get("os_version"),
-            "is_managed": bool(comp.get("managed", False)),
-            "is_supervised": bool(comp.get("supervised", False)),
-            "username": comp.get("username"),
-            "full_name": comp.get("realname"),
-            "email": comp.get("email_address"),
-            "department": comp.get("department"),
-            "building": comp.get("building"),
+            "name": general.get("name") or f"Computer {jamf_id}",
+            "udid": general.get("udid"),
+            "serial_number": general.get("serial_number"),
+            "asset_tag": general.get("asset_tag") or None,
+            "model": hardware.get("model"),
+            "model_identifier": hardware.get("model_identifier"),
+            "os_version": hardware.get("os_version"),
+            "os_build": hardware.get("os_build"),
+            "processor": hardware.get("processor_type"),
+            "ram_mb": hardware.get("total_ram") or None,
+            "is_managed": bool(remote_mgmt.get("managed", general.get("managed", False))),
+            "is_supervised": bool(general.get("supervised", False)),
+            "last_contact": _parse_dt(general.get("last_contact_time_utc")),
+            "last_enrollment": _parse_dt(general.get("last_enrolled_date_utc")),
+            "username": location.get("username"),
+            "full_name": location.get("realname") or location.get("real_name"),
+            "email": location.get("email_address"),
+            "department": location.get("department"),
+            "building": location.get("building"),
         })
         total_upserted += 1
 
@@ -546,6 +588,251 @@ async def _sync_policies(
 
 
 # ---------------------------------------------------------------------------
+# Smart group sync — Classic API (/JSSResource/computergroups)
+# ---------------------------------------------------------------------------
+
+async def _upsert_smart_group(db_session, server_id, jamf_id: int, fields: dict) -> None:
+    existing = await db_session.execute(
+        select(SmartGroup).where(SmartGroup.jamf_id == jamf_id, SmartGroup.server_id == server_id)
+    )
+    sg = existing.scalar_one_or_none()
+    if sg is None:
+        sg = SmartGroup(jamf_id=jamf_id, server_id=server_id)
+        db_session.add(sg)
+    for attr, value in fields.items():
+        setattr(sg, attr, value)
+    sg.synced_at = datetime.now(UTC)
+
+
+async def _fetch_smart_group_detail(
+    client: httpx.AsyncClient,
+    base_url: str,
+    token: str,
+    group_id: int,
+    semaphore: asyncio.Semaphore,
+) -> dict | None:
+    async with semaphore:
+        try:
+            resp = await client.get(
+                f"{base_url}/JSSResource/computergroups/id/{group_id}",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            )
+            if resp.status_code != 200:
+                logger.warning("Skipping group %d: HTTP %d", group_id, resp.status_code)
+                return None
+            return resp.json().get("computer_group", {})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Error fetching group detail %d: %s", group_id, exc)
+            return None
+
+
+async def _sync_smart_groups(
+    db_session, server: JamfServer, client: httpx.AsyncClient, token: str
+) -> int:
+    """Sync computer smart groups via the Classic API."""
+    base_url = server.url
+    resp = await client.get(
+        f"{base_url}/JSSResource/computergroups",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    if resp.status_code != 200:
+        logger.warning("GET /JSSResource/computergroups returned %d — skipping", resp.status_code)
+        return 0
+
+    raw = resp.json()
+    # Response is either {"computer_groups": [...]} or {"computer_groups": {"computer_group": [...]}}
+    groups_val = raw.get("computer_groups") or []
+    if isinstance(groups_val, dict):
+        all_groups = groups_val.get("computer_group") or []
+    else:
+        all_groups = groups_val
+
+    # Only smart groups
+    smart_stubs = [g for g in all_groups if g.get("is_smart") or g.get("is_smart_group")]
+    if not smart_stubs:
+        logger.info("No smart groups found on %s", base_url)
+        return 0
+
+    semaphore = asyncio.Semaphore(10)
+    details = await asyncio.gather(
+        *[_fetch_smart_group_detail(client, base_url, token, int(g["id"]), semaphore)
+          for g in smart_stubs if g.get("id")]
+    )
+
+    total_upserted = 0
+    for stub, detail in zip(smart_stubs, details):
+        jamf_id = int(stub.get("id", 0))
+        if not jamf_id or detail is None:
+            continue
+
+        criteria_raw = detail.get("criteria") or {}
+        if isinstance(criteria_raw, dict):
+            # Classic API wraps criteria in {"criterion": [...]}
+            crit_list = criteria_raw.get("criterion") or []
+            if isinstance(crit_list, dict):  # single criterion comes as dict, not list
+                crit_list = [crit_list]
+            criteria = crit_list
+        elif isinstance(criteria_raw, list):
+            criteria = criteria_raw
+        else:
+            criteria = []
+
+        computers_raw = detail.get("computers") or {}
+        if isinstance(computers_raw, dict):
+            comp_list = computers_raw.get("computer") or []
+            if isinstance(comp_list, dict):
+                comp_list = [comp_list]
+            member_count = detail.get("size") or len(comp_list)
+        else:
+            member_count = detail.get("size") or len(computers_raw)
+
+        await _upsert_smart_group(db_session, server.id, jamf_id, {
+            "name": detail.get("name") or stub.get("name") or f"Group {jamf_id}",
+            "criteria": criteria if criteria else None,
+            "member_count": member_count,
+        })
+        total_upserted += 1
+
+    await db_session.flush()
+    logger.info("smart group sync: %d groups from %s", total_upserted, base_url)
+    return total_upserted
+
+
+# ---------------------------------------------------------------------------
+# Patch title sync — modern API first, Classic fallback
+# ---------------------------------------------------------------------------
+
+async def _upsert_patch_title(db_session, server_id, jamf_id: int, fields: dict) -> None:
+    existing = await db_session.execute(
+        select(PatchTitle).where(PatchTitle.jamf_id == jamf_id, PatchTitle.server_id == server_id)
+    )
+    pt = existing.scalar_one_or_none()
+    if pt is None:
+        pt = PatchTitle(jamf_id=jamf_id, server_id=server_id)
+        db_session.add(pt)
+    for attr, value in fields.items():
+        setattr(pt, attr, value)
+    pt.synced_at = datetime.now(UTC)
+
+
+async def _sync_patches_modern(
+    db_session, server: JamfServer, client: httpx.AsyncClient, token: str
+) -> int | None:
+    """Sync patch titles via /api/v2/patch-software-title-configurations.
+
+    Returns upsert count, or None if endpoint is unavailable.
+    """
+    base_url = server.url
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    total_upserted = 0
+
+    # First request — determine if the response is a paginated wrapper or a bare array
+    resp = await client.get(
+        f"{base_url}/api/v2/patch-software-title-configurations",
+        headers=headers,
+        params={"page": 0, "page-size": _PAGE_SIZE},
+    )
+    if resp.status_code in (404, 405):
+        return None
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"GET /api/v2/patch-software-title-configurations returned "
+            f"{resp.status_code}: {resp.text[:200]}"
+        )
+
+    raw = resp.json()
+
+    # Jamf Cloud returns a bare array; Jamf Pro 11+/paginated returns {results, totalCount}
+    if isinstance(raw, list):
+        all_items = raw
+    else:
+        all_items = raw.get("results") or []
+        total_count = raw.get("totalCount", 0)
+        page = 1
+        while (page * _PAGE_SIZE) < total_count:
+            r = await client.get(
+                f"{base_url}/api/v2/patch-software-title-configurations",
+                headers=headers,
+                params={"page": page, "page-size": _PAGE_SIZE},
+            )
+            if r.status_code != 200:
+                break
+            all_items.extend(r.json().get("results") or [])
+            page += 1
+
+    for item in all_items:
+        if not isinstance(item, dict):
+            continue
+        jamf_id = int(item.get("id", 0) or 0)
+        if not jamf_id:
+            continue
+        enrolled = int(item.get("enrolledDeviceCount") or 0)
+        installed = int(item.get("installedDeviceCount") or 0)
+        await _upsert_patch_title(db_session, server.id, jamf_id, {
+            "software_title": item.get("softwareTitleName") or f"Title {jamf_id}",
+            "latest_version": item.get("targetPatchVersion") or None,
+            "current_version": item.get("targetPatchVersion") or None,
+            "patched_count": installed,
+            "unpatched_count": max(enrolled - installed, 0),
+        })
+        total_upserted += 1
+
+    await db_session.flush()
+    logger.info("modern patch sync: %d titles from %s", total_upserted, base_url)
+    return total_upserted
+
+
+async def _sync_patches_classic(
+    db_session, server: JamfServer, client: httpx.AsyncClient, token: str
+) -> int:
+    """Sync patch titles via the Classic API (/JSSResource/patchsoftwaretitles)."""
+    base_url = server.url
+    resp = await client.get(
+        f"{base_url}/JSSResource/patchsoftwaretitles",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    if resp.status_code != 200:
+        logger.warning("GET /JSSResource/patchsoftwaretitles returned %d — skipping", resp.status_code)
+        return 0
+
+    raw = resp.json()
+    titles_val = raw.get("patch_software_titles") or raw.get("patchSoftwareTitles") or []
+    if isinstance(titles_val, dict):
+        stubs = titles_val.get("patch_software_title") or []
+    else:
+        stubs = titles_val
+
+    total_upserted = 0
+    for stub in stubs:
+        jamf_id = int(stub.get("id", 0))
+        if not jamf_id:
+            continue
+        await _upsert_patch_title(db_session, server.id, jamf_id, {
+            "software_title": stub.get("name") or f"Title {jamf_id}",
+            "latest_version": stub.get("current_version") or None,
+            "current_version": stub.get("current_version") or None,
+            "patched_count": 0,
+            "unpatched_count": 0,
+        })
+        total_upserted += 1
+
+    await db_session.flush()
+    logger.info("classic patch sync: %d titles from %s", total_upserted, base_url)
+    return total_upserted
+
+
+async def _sync_patches(
+    db_session, server: JamfServer, client: httpx.AsyncClient, token: str
+) -> int:
+    """Sync patch titles: modern API first, Classic fallback."""
+    result = await _sync_patches_modern(db_session, server, client, token)
+    if result is not None:
+        return result
+    logger.warning("Modern patch endpoint unavailable on %s, using Classic API", server.url)
+    return await _sync_patches_classic(db_session, server, client, token)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -567,16 +854,21 @@ async def sync_server(server_id: str) -> None:
             client_id = decrypt(server.client_id)
             client_secret = decrypt(server.client_secret)
 
-            async with httpx.AsyncClient(timeout=60) as http:
+            async with httpx.AsyncClient(timeout=120) as http:
                 token = await _get_oauth_token(http, server.url, client_id, client_secret)
                 count = await _sync_computers(db, server, http, token)
                 policy_count = await _sync_policies(db, server, http, token)
+                sg_count = await _sync_smart_groups(db, server, http, token)
+                patch_count = await _sync_patches(db, server, http, token)
 
             server.last_sync = datetime.now(UTC)
             server.last_sync_error = None
             await db.commit()
 
-            logger.info("Sync complete: server=%s devices=%d policies=%d", server_id, count, policy_count)
+            logger.info(
+                "Sync complete: server=%s devices=%d policies=%d smart_groups=%d patches=%d",
+                server_id, count, policy_count, sg_count, patch_count,
+            )
             await _set_status(server_id, "idle")
 
         except Exception as exc:  # noqa: BLE001
