@@ -165,7 +165,7 @@
 - [x] `ChatMessage` — id, session_id (FK), role (user/assistant), content, sources (JSONB), created_at
 - [x] `KnowledgeDocument` — id, title, source, file_path, file_hash, ingested_at, chunk_count
 - [x] Run `alembic init alembic` and configure `alembic.ini` + `env.py`
-- [ ] Create initial migration with `alembic revision --autogenerate -m "initial"`
+- [x] Create initial migration with `alembic revision --autogenerate -m "initial"`
 
 ### 2.3 Authentication & Authorization
 - [x] Implement `/api/auth/register` endpoint (admin-only, first user bootstrapping)
@@ -178,17 +178,17 @@
 - [x] Hash passwords with bcrypt via passlib
 
 ### 2.4 Jamf Server Management Endpoints
-- [ ] `GET /api/servers` — list all configured Jamf servers
-- [ ] `POST /api/servers` — add a new Jamf server (validate connectivity + credentials)
+- [x] `GET /api/servers` — list all configured Jamf servers
+- [x] `POST /api/servers` — add a new Jamf server (validate connectivity + credentials)
 - [ ] `GET /api/servers/{id}` — get server details + sync status
-- [ ] `PUT /api/servers/{id}` — update server config
-- [ ] `DELETE /api/servers/{id}` — remove server and all synced data
-- [ ] `POST /api/servers/{id}/sync` — trigger manual full sync
-- [ ] `GET /api/servers/{id}/sync/status` — get current sync progress/status
+- [x] `PUT /api/servers/{id}` — update server config
+- [x] `DELETE /api/servers/{id}` — remove server and all synced data
+- [x] `POST /api/servers/{id}/sync` — trigger manual full sync
+- [x] `GET /api/servers/{id}/sync/status` — get current sync progress/status
 
 ### 2.5 Device Endpoints
-- [ ] `GET /api/devices` — paginated list with filters: server, OS version, compliance status, last contact, smart group, search by name/serial/username
-- [ ] `GET /api/devices/{id}` — full device detail (hardware, OS, apps, policies, security, compliance)
+- [x] `GET /api/devices` — paginated list with filters: server, OS version, compliance status, last contact, smart group, search by name/serial/username
+- [x] `GET /api/devices/{id}` — full device detail (hardware, OS, apps, policies, security, compliance)
 - [ ] `GET /api/devices/{id}/applications` — list installed apps
 - [ ] `GET /api/devices/{id}/policies` — policy execution history
 - [ ] `GET /api/devices/{id}/security` — security posture detail
@@ -196,18 +196,18 @@
 - [ ] `GET /api/devices/os-distribution` — OS version breakdown for charts
 
 ### 2.6 Policy Endpoints
-- [ ] `GET /api/policies` — paginated list with filters: server, category, enabled status
-- [ ] `GET /api/policies/{id}` — policy detail
+- [x] `GET /api/policies` — paginated list with filters: server, category, enabled status
+- [x] `GET /api/policies/{id}` — policy detail
 - [ ] `GET /api/policies/{id}/devices` — devices where this policy has run
 
 ### 2.7 Smart Group Endpoints
-- [ ] `GET /api/smart-groups` — list all smart groups with member counts
-- [ ] `GET /api/smart-groups/{id}` — smart group detail + criteria
+- [x] `GET /api/smart-groups` — list all smart groups with member counts
+- [x] `GET /api/smart-groups/{id}` — smart group detail + criteria
 - [ ] `GET /api/smart-groups/{id}/members` — paginated device member list
 
 ### 2.8 Patch Management Endpoints
-- [ ] `GET /api/patches` — list all patch titles with patched/unpatched counts
-- [ ] `GET /api/patches/{id}` — patch title detail with version history
+- [x] `GET /api/patches` — list all patch titles with patched/unpatched counts
+- [x] `GET /api/patches/{id}` — patch title detail with version history
 - [ ] `GET /api/patches/{id}/devices` — devices needing this patch
 
 ### 2.9 Compliance Endpoints
@@ -216,13 +216,13 @@
 - [ ] `GET /api/compliance/devices` — devices with compliance failures
 
 ### 2.10 Dashboard Summary Endpoint
-- [ ] `GET /api/dashboard` — single endpoint returning all top-level KPI data needed to populate dashboard cards and charts (with Redis caching, 5-minute TTL)
+- [x] `GET /api/dashboard` — single endpoint returning all top-level KPI data needed to populate dashboard cards and charts (with Redis caching, 5-minute TTL)
 
 ### 2.11 Background Sync Service
-- [ ] Create `SyncService` that iterates over all active Jamf servers and calls the Jamf API client
+- [x] Create `SyncService` that iterates over all active Jamf servers and calls the Jamf API client
 - [ ] Implement incremental sync using `lastContactTime` filters where possible
 - [ ] Schedule sync job with APScheduler every 15 minutes (configurable via env)
-- [ ] Track sync state (running / idle / error) per server in Redis
+- [x] Track sync state (running / idle / error) per server in Redis
 - [ ] Emit sync progress events via Server-Sent Events (SSE) endpoint: `GET /api/servers/{id}/sync/stream`
 - [ ] Log sync durations, record counts, and errors with structlog
 
@@ -458,8 +458,8 @@
 - [ ] Normalize application version strings for patch comparison
 
 ### 4.5 Multi-Server Support
-- [ ] Store server credentials encrypted at rest (use `cryptography` Fernet symmetric encryption)
-- [ ] Isolate data per server — all queries filterable by `server_id`
+- [x] Store server credentials encrypted at rest (use `cryptography` Fernet symmetric encryption)
+- [x] Isolate data per server — all queries filterable by `server_id`
 - [ ] Aggregate cross-server data for global dashboard views
 - [ ] Handle one server being unavailable without breaking the whole sync cycle
 - [ ] Allow enabling/disabling individual servers without data deletion
@@ -482,12 +482,12 @@
 - [ ] Implement configurable context window size and temperature settings
 
 ### 5.2 AI Chat Endpoints
-- [ ] `POST /api/ai/chat` — streaming chat endpoint (SSE), accepts message + session_id, returns token stream
-- [ ] `GET /api/ai/sessions` — list user's chat sessions
-- [ ] `POST /api/ai/sessions` — create new chat session
-- [ ] `GET /api/ai/sessions/{id}/messages` — get message history for session
-- [ ] `DELETE /api/ai/sessions/{id}` — delete a chat session
-- [ ] Persist chat history to PostgreSQL (`ChatSession` + `ChatMessage` tables)
+- [x] `POST /api/ai/chat` — streaming chat endpoint (SSE), accepts message + session_id, returns token stream
+- [x] `GET /api/ai/sessions` — list user's chat sessions
+- [x] `POST /api/ai/sessions` — create new chat session
+- [x] `GET /api/ai/sessions/{id}/messages` — get message history for session
+- [x] `DELETE /api/ai/sessions/{id}` — delete a chat session
+- [x] Persist chat history to PostgreSQL (`ChatSession` + `ChatMessage` tables)
 - [ ] Include source citations in AI responses (document titles + chunk references from RAG)
 
 ### 5.3 Tool-Augmented AI (LangChain Tools / Function Calling)
@@ -576,9 +576,9 @@
 - [ ] Implement recursive text splitter with configurable chunk size (512 tokens) and overlap (50 tokens)
 - [ ] Add metadata to each chunk: `source`, `title`, `page_number`, `server_id`, `doc_type`
 - [ ] Deduplicate by file hash — skip re-ingestion if file unchanged
-- [ ] Create `POST /api/knowledge/ingest` endpoint (admin only) to trigger ingestion from uploaded file or URL
-- [ ] Create `GET /api/knowledge/documents` endpoint — list all ingested documents
-- [ ] Create `DELETE /api/knowledge/documents/{id}` endpoint — remove document and its chunks
+- [x] Create `POST /api/knowledge/ingest` endpoint (admin only) to trigger ingestion from uploaded file or URL
+- [x] Create `GET /api/knowledge/documents` endpoint — list all ingested documents
+- [x] Create `DELETE /api/knowledge/documents/{id}` endpoint — remove document and its chunks
 
 ### 6.3 Knowledge Base Content
 - [ ] Download and ingest the Jamf Pro Administrator's Guide (latest, PDF)
