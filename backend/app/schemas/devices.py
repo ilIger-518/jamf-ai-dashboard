@@ -11,17 +11,25 @@ class DeviceResponse(BaseModel):
     jamf_id: int
     name: str
     serial_number: str | None
+    asset_tag: str | None
     model: str | None
+    model_identifier: str | None
+    processor: str | None
+    ram_mb: int | None
     os_version: str | None
+    os_build: str | None
     is_managed: bool
     is_supervised: bool
     last_contact: datetime | None
+    last_enrollment: datetime | None
     username: str | None
     full_name: str | None
+    email: str | None
     department: str | None
     building: str | None
     site: str | None
     server_id: uuid.UUID
+    server_url: str | None = None
     synced_at: datetime
 
     model_config = {"from_attributes": True}

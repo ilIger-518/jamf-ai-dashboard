@@ -15,6 +15,7 @@ class PolicyResponse(BaseModel):
     trigger: str | None
     scope_description: str | None
     server_id: uuid.UUID
+    server_url: str | None = None
     synced_at: datetime
 
     model_config = {"from_attributes": True}

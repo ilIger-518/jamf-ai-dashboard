@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Shield, RefreshCw, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
 
 interface Policy {
   id: string;
@@ -15,16 +16,32 @@ interface Policy {
   scope_description: string | null;
 }
 
+interface PolicyDetail extends Policy {
+  jamf_id: number;
+  synced_at: string;
+}
+
 interface PagedPolicies { items: Policy[]; total: number; page: number; per_page: number; }
+
+function fmt(dt: string | null | undefined) {
+  return dt ? new Date(dt).toLocaleString() : "—";
+}
 
 export default function PoliciesPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const perPage = 50;
 
   const { data, isLoading } = useQuery<PagedPolicies>({
     queryKey: ["policies", page, search],
     queryFn: () => api.get<PagedPolicies>("/policies", { params: { page, per_page: perPage, search: search || undefined } }).then((r) => r.data),
+  });
+
+  const { data: detail, isLoading: detailLoading } = useQuery<PolicyDetail>({
+    queryKey: ["policies", selectedId],
+    queryFn: () => api.get<PolicyDetail>(`/policies/${selectedId}`).then((r) => r.data),
+    enabled: !!selectedId,
   });
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 1;
@@ -55,7 +72,11 @@ export default function PoliciesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {data.items.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <tr
+                    key={p.id}
+                    onClick={() => setSelectedId(p.id)}
+                    className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                  >
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{p.name}</td>
                     <td className="px-4 py-3 text-gray-500">{p.category ?? "—"}</td>
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.trigger ?? "—"}</td>
@@ -80,6 +101,43 @@ export default function PoliciesPage() {
           </>
         )}
       </div>
+
+      <DetailDrawer
+        open={!!selectedId}
+        onClose={() => setSelectedId(null)}
+        title={detail?.name ?? "Policy Details"}
+      >
+        {detailLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+          </div>
+        ) : detail ? (
+          <div className="space-y-6 px-6 py-4">
+            <DrawerSection title="Policy">
+              <DrawerRow label="Name" value={detail.name} />
+              <DrawerRow label="Jamf ID" value={detail.jamf_id} />
+              <DrawerRow label="Status" value={
+                <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                  detail.enabled ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300" : "bg-gray-100 text-gray-500")}>
+                  {detail.enabled ? "Enabled" : "Disabled"}
+                </span>
+              } />
+              <DrawerRow label="Category" value={detail.category} />
+              <DrawerRow label="Trigger" value={detail.trigger ? <span className="font-mono text-xs">{detail.trigger}</span> : null} />
+            </DrawerSection>
+
+            {detail.scope_description && (
+              <DrawerSection title="Scope">
+                <div className="py-2 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                  {detail.scope_description}
+                </div>
+              </DrawerSection>
+            )}
+
+            <p className="text-xs text-gray-400 pb-2">Last synced {fmt(detail.synced_at)}</p>
+          </div>
+        ) : null}
+      </DetailDrawer>
     </div>
   );
 }

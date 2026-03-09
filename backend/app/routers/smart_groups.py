@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.dependencies import CurrentUser, DBSession
@@ -39,3 +39,12 @@ async def list_smart_groups(
         page=page,
         per_page=per_page,
     )
+
+
+@router.get("/{group_id}", response_model=SmartGroupResponse)
+async def get_smart_group(group_id: uuid.UUID, db: DBSession, _: CurrentUser) -> SmartGroupResponse:
+    result = await db.execute(select(SmartGroup).where(SmartGroup.id == group_id))
+    group = result.scalar_one_or_none()
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Smart group not found")
+    return SmartGroupResponse.model_validate(group)

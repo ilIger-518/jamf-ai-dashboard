@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Package, RefreshCw, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
 
 interface Patch {
   id: string;
@@ -17,16 +18,32 @@ interface Patch {
   patch_percent: number;
 }
 
+interface PatchDetail extends Patch {
+  jamf_id: number | null;
+  synced_at: string;
+}
+
 interface PagedPatches { items: Patch[]; total: number; page: number; per_page: number; }
+
+function fmt(dt: string | null | undefined) {
+  return dt ? new Date(dt).toLocaleString() : "—";
+}
 
 export default function PatchesPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const perPage = 50;
 
   const { data, isLoading } = useQuery<PagedPatches>({
     queryKey: ["patches", page, search],
     queryFn: () => api.get<PagedPatches>("/patches", { params: { page, per_page: perPage, search: search || undefined } }).then((r) => r.data),
+  });
+
+  const { data: detail, isLoading: detailLoading } = useQuery<PatchDetail>({
+    queryKey: ["patches", selectedId],
+    queryFn: () => api.get<PatchDetail>(`/patches/${selectedId}`).then((r) => r.data),
+    enabled: !!selectedId,
   });
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 1;
@@ -57,7 +74,11 @@ export default function PatchesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                 {data.items.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <tr
+                    key={p.id}
+                    onClick={() => setSelectedId(p.id)}
+                    className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                  >
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{p.software_title}</td>
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.current_version ?? "—"}</td>
                     <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.latest_version ?? "—"}</td>
@@ -89,6 +110,52 @@ export default function PatchesPage() {
           </>
         )}
       </div>
+
+      <DetailDrawer
+        open={!!selectedId}
+        onClose={() => setSelectedId(null)}
+        title={detail?.software_title ?? "Patch Details"}
+      >
+        {detailLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+          </div>
+        ) : detail ? (
+          <div className="space-y-6 px-6 py-4">
+            <DrawerSection title="Software Title">
+              <DrawerRow label="Title" value={detail.software_title} />
+              {detail.jamf_id != null && <DrawerRow label="Jamf ID" value={detail.jamf_id} />}
+              <DrawerRow label="Current Version" value={<span className="font-mono text-xs">{detail.current_version}</span>} />
+              <DrawerRow label="Latest Version" value={<span className="font-mono text-xs">{detail.latest_version}</span>} />
+            </DrawerSection>
+
+            <DrawerSection title="Patch Status">
+              <DrawerRow label="Total Devices" value={detail.total_count.toLocaleString()} />
+              <DrawerRow label="Patched" value={
+                <span className="font-medium text-green-600 dark:text-green-400">{detail.patched_count.toLocaleString()}</span>
+              } />
+              <DrawerRow label="Unpatched" value={
+                <span className={cn("font-medium", detail.unpatched_count > 0 ? "text-red-600 dark:text-red-400" : "text-gray-400")}>
+                  {detail.unpatched_count.toLocaleString()}
+                </span>
+              } />
+              <DrawerRow label="Coverage" value={
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
+                    <div
+                      className={cn("h-2 rounded-full", detail.patch_percent >= 90 ? "bg-green-500" : detail.patch_percent >= 70 ? "bg-yellow-400" : "bg-red-500")}
+                      style={{ width: `${detail.patch_percent}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-medium">{detail.patch_percent}%</span>
+                </div>
+              } />
+            </DrawerSection>
+
+            <p className="text-xs text-gray-400 pb-2">Last synced {fmt(detail.synced_at)}</p>
+          </div>
+        ) : null}
+      </DetailDrawer>
     </div>
   );
 }

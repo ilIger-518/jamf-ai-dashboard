@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.dependencies import CurrentUser, DBSession
@@ -39,3 +39,12 @@ async def list_patches(
         page=page,
         per_page=per_page,
     )
+
+
+@router.get("/{patch_id}", response_model=PatchResponse)
+async def get_patch(patch_id: uuid.UUID, db: DBSession, _: CurrentUser) -> PatchResponse:
+    result = await db.execute(select(PatchTitle).where(PatchTitle.id == patch_id))
+    patch = result.scalar_one_or_none()
+    if patch is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patch title not found")
+    return PatchResponse.model_validate(patch)

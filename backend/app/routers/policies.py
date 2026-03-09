@@ -2,7 +2,7 @@
 
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.dependencies import CurrentUser, DBSession
@@ -42,3 +42,12 @@ async def list_policies(
         page=page,
         per_page=per_page,
     )
+
+
+@router.get("/{policy_id}", response_model=PolicyResponse)
+async def get_policy(policy_id: uuid.UUID, db: DBSession, _: CurrentUser) -> PolicyResponse:
+    result = await db.execute(select(Policy).where(Policy.id == policy_id))
+    policy = result.scalar_one_or_none()
+    if policy is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy not found")
+    return PolicyResponse.model_validate(policy)

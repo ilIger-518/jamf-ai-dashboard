@@ -15,6 +15,7 @@ class PatchResponse(BaseModel):
     patched_count: int
     unpatched_count: int
     server_id: uuid.UUID
+    server_url: str | None = None
     synced_at: datetime
 
     @computed_field  # type: ignore[misc]
