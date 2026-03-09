@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Monitor, RefreshCw, Search } from "lucide-react";
+import { Monitor, RefreshCw, Search, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
@@ -32,6 +32,7 @@ interface DeviceDetail extends Device {
   email: string | null;
   building: string | null;
   site: string | null;
+  server_url: string | null;
   synced_at: string;
 }
 
@@ -163,7 +164,11 @@ export default function DevicesPage() {
           <div className="space-y-6 px-6 py-4">
             <DrawerSection title="Identity">
               <DrawerRow label="Name" value={detail.name} />
-              <DrawerRow label="Jamf ID" value={detail.jamf_id} />
+              <DrawerRow label="Jamf ID" value={
+                detail.server_url
+                  ? <a href={`${detail.server_url}/computers.html?id=${detail.jamf_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
+                  : detail.jamf_id
+              } />
               <DrawerRow label="Serial Number" value={<span className="font-mono text-xs">{detail.serial_number ?? "—"}</span>} />
               <DrawerRow label="Asset Tag" value={detail.asset_tag} />
             </DrawerSection>

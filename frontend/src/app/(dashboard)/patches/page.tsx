@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Package, RefreshCw, Search } from "lucide-react";
+import { Package, RefreshCw, Search, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
@@ -20,6 +20,7 @@ interface Patch {
 
 interface PatchDetail extends Patch {
   jamf_id: number | null;
+  server_url: string | null;
   synced_at: string;
 }
 
@@ -124,7 +125,11 @@ export default function PatchesPage() {
           <div className="space-y-6 px-6 py-4">
             <DrawerSection title="Software Title">
               <DrawerRow label="Title" value={detail.software_title} />
-              {detail.jamf_id != null && <DrawerRow label="Jamf ID" value={detail.jamf_id} />}
+              {detail.jamf_id != null && <DrawerRow label="Jamf ID" value={
+                detail.server_url
+                  ? <a href={`${detail.server_url}/patchManagement.html`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
+                  : detail.jamf_id
+              } />}
               <DrawerRow label="Current Version" value={<span className="font-mono text-xs">{detail.current_version}</span>} />
               <DrawerRow label="Latest Version" value={<span className="font-mono text-xs">{detail.latest_version}</span>} />
             </DrawerSection>

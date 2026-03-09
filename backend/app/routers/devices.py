@@ -2,8 +2,9 @@
 
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.dependencies import CurrentUser, DBSession
 from app.models.device import Device
@@ -51,10 +52,13 @@ async def list_devices(
 
 @router.get("/{device_id}", response_model=DeviceResponse)
 async def get_device(device_id: uuid.UUID, db: DBSession, _: CurrentUser) -> DeviceResponse:
-    from fastapi import HTTPException, status
-
-    result = await db.execute(select(Device).where(Device.id == device_id))
+    result = await db.execute(
+        select(Device).options(selectinload(Device.server)).where(Device.id == device_id)
+    )
     device = result.scalar_one_or_none()
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
-    return DeviceResponse.model_validate(device)
+    response = DeviceResponse.model_validate(device)
+    if device.server:
+        response.server_url = device.server.url.rstrip("/")
+    return response

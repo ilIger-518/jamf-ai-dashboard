@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Shield, RefreshCw, Search } from "lucide-react";
+import { Shield, RefreshCw, Search, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
@@ -18,6 +18,7 @@ interface Policy {
 
 interface PolicyDetail extends Policy {
   jamf_id: number;
+  server_url: string | null;
   synced_at: string;
 }
 
@@ -115,7 +116,11 @@ export default function PoliciesPage() {
           <div className="space-y-6 px-6 py-4">
             <DrawerSection title="Policy">
               <DrawerRow label="Name" value={detail.name} />
-              <DrawerRow label="Jamf ID" value={detail.jamf_id} />
+              <DrawerRow label="Jamf ID" value={
+                detail.server_url
+                  ? <a href={`${detail.server_url}/policies.html?id=${detail.jamf_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
+                  : detail.jamf_id
+              } />
               <DrawerRow label="Status" value={
                 <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
                   detail.enabled ? "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300" : "bg-gray-100 text-gray-500")}>

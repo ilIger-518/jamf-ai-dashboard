@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Users, RefreshCw, Search } from "lucide-react";
+import { Users, RefreshCw, Search, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
 
@@ -25,6 +25,7 @@ interface SmartGroup {
 interface SmartGroupDetail extends SmartGroup {
   jamf_id: number;
   criteria: Criterion[] | null;
+  server_url: string | null;
   synced_at: string;
 }
 
@@ -118,7 +119,11 @@ export default function SmartGroupsPage() {
           <div className="space-y-6 px-6 py-4">
             <DrawerSection title="Group">
               <DrawerRow label="Name" value={detail.name} />
-              <DrawerRow label="Jamf ID" value={detail.jamf_id} />
+              <DrawerRow label="Jamf ID" value={
+                detail.server_url
+                  ? <a href={`${detail.server_url}/computerGroups/${detail.jamf_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
+                  : detail.jamf_id
+              } />
               <DrawerRow label="Members" value={detail.member_count.toLocaleString()} />
               <DrawerRow label="Last Refreshed" value={fmt(detail.last_refreshed)} />
             </DrawerSection>
