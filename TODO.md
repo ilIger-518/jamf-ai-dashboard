@@ -220,8 +220,8 @@
 
 ### 2.11 Background Sync Service
 - [x] Create `SyncService` that iterates over all active Jamf servers and calls the Jamf API client
-- [ ] Implement incremental sync using `lastContactTime` filters where possible
-- [ ] Schedule sync job with APScheduler every 15 minutes (configurable via env)
+- [x] Implement incremental sync using `lastContactTime` filters where possible
+- [x] Schedule sync job with APScheduler every 15 minutes (configurable via env)
 - [x] Track sync state (running / idle / error) per server in Redis
 - [ ] Emit sync progress events via Server-Sent Events (SSE) endpoint: `GET /api/servers/{id}/sync/stream`
 - [ ] Log sync durations, record counts, and errors with structlog
@@ -353,13 +353,13 @@
 - [x] Build logout flow (call `/api/auth/logout`, clear state, redirect to `/login`)
 
 ### 3.4 Dashboard Overview Page
-- [ ] Build `KpiCard` displaying: Total Devices, Managed, Unmanaged, Non-Compliant, Pending Patches
-- [ ] Build `OsVersionChart` — horizontal bar or donut chart showing OS version distribution
+- [x] Build `KpiCard` displaying: Total Devices, Managed, Unmanaged, Non-Compliant, Pending Patches
+- [x] Build `OsVersionChart` — horizontal bar or donut chart showing OS version distribution
 - [ ] Build `ComplianceDonut` — pie chart of pass/fail/warn compliance statuses
-- [ ] Build `PatchStatusBar` — stacked bar showing patched vs unpatched per title (top 10)
+- [x] Build `PatchStatusBar` — stacked bar showing patched vs unpatched per title (top 10)
 - [ ] Build `RecentActivityFeed` — last N sync events and notable compliance changes
-- [ ] Add auto-refresh (poll `/api/dashboard` every 5 minutes)
-- [ ] Add manual "Refresh" button with last-updated timestamp
+- [x] Add auto-refresh (poll `/api/dashboard` every 5 minutes)
+- [x] Add manual "Refresh" button with last-updated timestamp
 
 ### 3.5 Device List Page
 - [ ] Build `DeviceTable` using TanStack Table with virtualization for large datasets

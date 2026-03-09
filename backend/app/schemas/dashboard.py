@@ -3,6 +3,17 @@
 from pydantic import BaseModel
 
 
+class OsVersionCount(BaseModel):
+    os_version: str
+    count: int
+
+
+class PatchSummary(BaseModel):
+    software_title: str
+    patched: int
+    unpatched: int
+
+
 class DashboardStats(BaseModel):
     total_devices: int
     managed_devices: int
@@ -13,3 +24,5 @@ class DashboardStats(BaseModel):
     total_smart_groups: int
     total_servers: int
     active_servers: int
+    os_distribution: list[OsVersionCount]
+    top_patches: list[PatchSummary]

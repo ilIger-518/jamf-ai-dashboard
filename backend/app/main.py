@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 import structlog
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -24,6 +25,7 @@ from app.routers import (
     servers,
     smart_groups,
 )
+from app.services.jamf.sync import sync_all_servers
 
 logger = structlog.get_logger(__name__)
 
@@ -37,10 +39,27 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     # Warm up Redis connection
     await get_redis()
 
+    # Start background sync scheduler
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        sync_all_servers,
+        trigger="interval",
+        minutes=settings.sync_interval_minutes,
+        id="sync_all_servers",
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+    scheduler.start()
+    logger.info(
+        "Sync scheduler started",
+        interval_minutes=settings.sync_interval_minutes,
+    )
+
     yield
 
     # Graceful shutdown
     logger.info("Shutting down")
+    scheduler.shutdown(wait=False)
     await close_redis()
     await engine.dispose()  # type: ignore[union-attr]
 
