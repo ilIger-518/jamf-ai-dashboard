@@ -127,7 +127,7 @@ export default function PatchesPage() {
               <DrawerRow label="Title" value={detail.software_title} />
               {detail.jamf_id != null && <DrawerRow label="Jamf ID" value={
                 detail.server_url
-                  ? <a href={`${detail.server_url}/patchManagement.html`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
+                  ? <a href={`${detail.server_url}/view/computers/patch/${detail.jamf_id}?tab=report`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
                   : detail.jamf_id
               } />}
               <DrawerRow label="Current Version" value={<span className="font-mono text-xs">{detail.current_version}</span>} />

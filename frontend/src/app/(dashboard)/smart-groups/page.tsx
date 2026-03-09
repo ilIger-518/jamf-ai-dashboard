@@ -121,7 +121,7 @@ export default function SmartGroupsPage() {
               <DrawerRow label="Name" value={detail.name} />
               <DrawerRow label="Jamf ID" value={
                 detail.server_url
-                  ? <a href={`${detail.server_url}/computerGroups/${detail.jamf_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
+                  ? <a href={`${detail.server_url}/smartComputerGroups.html?id=${detail.jamf_id}&o=r`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-blue-600 hover:underline dark:text-blue-400">{detail.jamf_id} <ExternalLink className="h-3 w-3" /></a>
                   : detail.jamf_id
               } />
               <DrawerRow label="Members" value={detail.member_count.toLocaleString()} />
