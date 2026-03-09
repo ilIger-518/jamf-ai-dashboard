@@ -16,6 +16,7 @@ import {
   ShieldAlert,
   ChevronRight,
   Loader2,
+  RotateCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -53,24 +54,25 @@ const emptyForm: ServerFormValues = {
 // -----------------------------------------------------------------------
 
 const READONLY_PRIVILEGES = [
-  "Read Computers", "Read Computer Groups", "Read Computer Management",
-  "Read Computer Reports", "Read Mobile Devices", "Read Mobile Device Groups",
-  "Read Users", "Read User Groups", "Read Policies", "Read Categories",
+  "Read Computers", "Read Computer Inventory Collection",
+  "Read Smart Computer Groups", "Read Static Computer Groups",
+  "Read Mobile Devices", "Read Mobile Device Inventory Collection",
+  "Read Smart Mobile Device Groups", "Read Static Mobile Device Groups",
+  "Read Policies", "Read Categories",
   "Read Departments", "Read Buildings", "Read Sites", "Read Scripts",
-  "Read Extension Attributes", "Read Patch Management Software Titles",
-  "Read Patch Policies", "Read Smart Computer Groups", "Read Smart Mobile Device Groups",
-  "Read Advanced Computer Searches",
+  "Read Computer Extension Attributes", "Read Mobile Device Extension Attributes",
+  "Read Patch Management Software Titles",
+  "Read Patch Policies", "Read Advanced Computer Searches",
 ];
 
 const FULL_EXTRA_PRIVILEGES = [
-  "Create/Update/Delete Computers",
-  "Create/Update/Delete Policies",
-  "Create/Update/Delete Computer Groups",
-  "Create/Update/Delete Mobile Device Groups",
-  "Create/Update/Delete Scripts",
-  "Create/Update/Delete Extension Attributes",
-  "Send Remote Lock / Wipe Commands",
-  "Update Computer Management",
+  "Create / Update / Delete Computers",
+  "Create / Update / Delete Policies",
+  "Create / Update / Delete Smart & Static Computer Groups",
+  "Create / Update / Delete Smart & Static Mobile Device Groups",
+  "Create / Update / Delete Scripts",
+  "Create / Update / Delete Computer Extension Attributes",
+  "Send Computer Remote Lock & Wipe Commands",
 ];
 
 // -----------------------------------------------------------------------
@@ -487,6 +489,8 @@ export default function SettingsPage() {
   const qc = useQueryClient();
   const [modal, setModal] = useState<"add" | JamfServer | null>(null);
   const [showWizard, setShowWizard] = useState(false);
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [syncingAll, setSyncingAll] = useState(false);
 
   const { data: servers = [], isLoading } = useQuery<JamfServer[]>({
     queryKey: ["servers"],
@@ -510,6 +514,38 @@ export default function SettingsPage() {
     mutationFn: (id: string) => api.delete(`/servers/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["servers"] }); toast.success("Server removed"); },
     onError: () => toast.error("Failed to delete server"),
+  });
+
+  const syncOneMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/servers/${id}/sync`).then((r) => r.data),
+    onMutate: (id) => setSyncingIds((prev) => new Set(prev).add(id)),
+    onSuccess: (_, id) => {
+      toast.success("Sync started");
+      // Poll the server list until last_sync updates
+      const poll = setInterval(() => {
+        qc.invalidateQueries({ queryKey: ["servers"] });
+      }, 3000);
+      setTimeout(() => {
+        clearInterval(poll);
+        setSyncingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
+        qc.invalidateQueries({ queryKey: ["servers"] });
+      }, 30_000);
+    },
+    onError: (_, id) => {
+      toast.error("Sync failed");
+      setSyncingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
+    },
+  });
+
+  const syncAllMutation = useMutation({
+    mutationFn: () => api.post("/servers/sync-all").then((r) => r.data),
+    onMutate: () => setSyncingAll(true),
+    onSuccess: () => {
+      toast.success("Sync all started");
+      const poll = setInterval(() => qc.invalidateQueries({ queryKey: ["servers"] }), 3000);
+      setTimeout(() => { clearInterval(poll); setSyncingAll(false); qc.invalidateQueries({ queryKey: ["servers"] }); }, 60_000);
+    },
+    onError: () => { toast.error("Sync all failed"); setSyncingAll(false); },
   });
 
   const handleSave = (form: ServerFormValues) => {
@@ -539,6 +575,16 @@ export default function SettingsPage() {
             <Wand2 className="h-4 w-4" />
             Setup Wizard
           </button>
+          {servers.length > 0 && (
+            <button
+              onClick={() => syncAllMutation.mutate()}
+              disabled={syncingAll}
+              className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              <RotateCw className={`h-4 w-4 ${syncingAll ? "animate-spin" : ""}`} />
+              {syncingAll ? "Syncing…" : "Sync All"}
+            </button>
+          )}
           <button
             onClick={() => setModal("add")}
             className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -615,6 +661,14 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
+                  <button
+                    title="Sync now"
+                    onClick={() => syncOneMutation.mutate(s.id)}
+                    disabled={syncingIds.has(s.id)}
+                    className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-blue-600 disabled:opacity-50 dark:hover:bg-gray-800"
+                  >
+                    <RotateCw className={`h-4 w-4 ${syncingIds.has(s.id) ? "animate-spin" : ""}`} />
+                  </button>
                   <button
                     onClick={() => setModal(s)}
                     className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800"

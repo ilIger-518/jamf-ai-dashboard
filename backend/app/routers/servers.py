@@ -1,5 +1,6 @@
 """Jamf server management router (admin only)."""
 
+import asyncio
 import uuid
 
 import httpx
@@ -18,6 +19,7 @@ from app.schemas.servers import (
     ServerUpdate,
 )
 from app.services.encryption import encrypt
+from app.services.jamf.sync import get_sync_status, sync_all_servers, sync_server
 
 router = APIRouter(prefix="/servers", tags=["servers"])
 
@@ -55,17 +57,22 @@ async def _jamf_bearer_token(
 async def _create_role(
     client: httpx.AsyncClient, base_url: str, token: str, display_name: str, privileges: list[str]
 ) -> None:
-    """Create an API role (ignore 409 Conflict — role already exists)."""
+    """Create an API role.  Silently skips if the role already exists
+    (Jamf Pro returns 409 *or* 400 "must be unique" for duplicates)."""
     resp = await client.post(
         f"{base_url}/api/v1/api-roles",
         headers={"Authorization": f"Bearer {token}"},
         json={"displayName": display_name, "privileges": privileges},
     )
-    if resp.status_code not in (200, 201, 409):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to create API role '{display_name}': {resp.status_code} {resp.text[:200]}",
-        )
+    if resp.status_code in (200, 201, 409):
+        return
+    # Jamf Pro 11+ returns 400 with "must be unique" instead of 409
+    if resp.status_code == 400 and "must be unique" in resp.text:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Failed to create API role '{display_name}': {resp.status_code} {resp.text[:200]}",
+    )
 
 
 async def _create_client(
@@ -87,6 +94,13 @@ async def _create_client(
         },
     )
     if resp.status_code not in (200, 201):
+        # Jamf Pro returns 400 "must be unique" for duplicate display names
+        if resp.status_code == 400 and "must be unique" in resp.text:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"An API integration named '{display_name}' already exists in Jamf Pro. "
+                       f"Delete it first or use the existing credentials.",
+            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to create API integration '{display_name}': {resp.status_code} {resp.text[:200]}",
@@ -236,3 +250,43 @@ async def provision_server(body: ServerProvision, db: DBSession, _: AdminUser) -
         readonly_role=_READONLY_ROLE_NAME,
         readonly_client_display_name=_READONLY_CLIENT_NAME,
     )
+
+
+# ---------------------------------------------------------------------------
+# Manual sync endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/{server_id}/sync", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_sync(server_id: uuid.UUID, db: DBSession, _: AdminUser) -> dict:
+    """Kick off a background sync for a specific server."""
+    result = await db.execute(select(JamfServer).where(JamfServer.id == server_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    asyncio.create_task(sync_server(str(server_id)))
+    return {"status": "started", "server_id": str(server_id)}
+
+
+@router.post("/sync-all", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_sync_all(_: AdminUser) -> dict:
+    """Kick off a background sync for all active servers."""
+    asyncio.create_task(sync_all_servers())
+    return {"status": "started"}
+
+
+@router.get("/{server_id}/sync/status")
+async def get_server_sync_status(server_id: uuid.UUID, db: DBSession, _: CurrentUser) -> dict:
+    """Return the current sync status for a server (running / idle / error)."""
+    result = await db.execute(select(JamfServer).where(JamfServer.id == server_id))
+    server = result.scalar_one_or_none()
+    if server is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
+
+    sync_status = await get_sync_status(str(server_id))
+    return {
+        "server_id": str(server_id),
+        "status": sync_status,
+        "last_sync": server.last_sync.isoformat() if server.last_sync else None,
+        "last_sync_error": server.last_sync_error,
+    }
+
