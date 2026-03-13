@@ -2,6 +2,7 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -9,10 +10,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
+from sqlalchemy import update
 
 from app.cache import close_redis, get_redis
 from app.config import get_settings
-from app.database import engine
+from app.database import AsyncSessionLocal, engine
+from app.models.scrape_job import ScrapeJob
 from app.routers import (
     ai,
     assets,
@@ -40,6 +43,28 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 
     # Warm up Redis connection
     await get_redis()
+
+    # Mark any jobs that were left in 'running' state (e.g. from a previous crash/restart) as failed
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            update(ScrapeJob)
+            .where(ScrapeJob.status == "running")
+            .values(
+                status="failed",
+                error="Interrupted: service was restarted while job was running",
+                finished_at=datetime.now(timezone.utc),
+            )
+            .returning(ScrapeJob.id, ScrapeJob.domain)
+        )
+        interrupted = result.fetchall()
+        await session.commit()
+        if interrupted:
+            for job_id, domain in interrupted:
+                logger.warning(
+                    "Marked interrupted scrape job as failed",
+                    job_id=str(job_id),
+                    domain=domain,
+                )
 
     # Start background sync scheduler
     scheduler = AsyncIOScheduler()

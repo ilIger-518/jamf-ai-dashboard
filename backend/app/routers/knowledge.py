@@ -6,12 +6,13 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.database import AsyncSessionLocal
 from app.dependencies import AdminUser, CurrentUser
 from app.models.knowledge import KnowledgeDocument
 from app.models.scrape_job import ScrapeJob
+from app.models.scrape_job_log import ScrapeJobLog
 from app.services.scraper import run_scrape_job
 from app.services.vector_store import delete_by_source
 
@@ -45,6 +46,9 @@ class ScrapeJobResponse(BaseModel):
     cancel_requested: bool
     cpu_cap_mode: str
     cpu_cap_percent: int
+    seed_mode: str
+    seed_urls: int
+    sitemap_timed_out: bool
     created_at: str
     started_at: str | None
     finished_at: str | None
@@ -66,6 +70,9 @@ class ScrapeJobResponse(BaseModel):
             cancel_requested=job.cancel_requested,
             cpu_cap_mode=job.cpu_cap_mode,
             cpu_cap_percent=job.cpu_cap_percent,
+            seed_mode=job.seed_mode,
+            seed_urls=job.seed_urls,
+            sitemap_timed_out=job.sitemap_timed_out,
             created_at=job.created_at.isoformat(),
             started_at=job.started_at.isoformat() if job.started_at else None,
             finished_at=job.finished_at.isoformat() if job.finished_at else None,
@@ -98,6 +105,36 @@ class ScrapeControlRequest(BaseModel):
     action: str  # pause | resume | cancel
     cpu_cap_mode: str | None = None  # total | core
     cpu_cap_percent: int | None = None
+
+
+class ScrapeJobLogResponse(BaseModel):
+    id: str
+    job_id: str
+    level: str
+    message: str
+    created_at: str
+
+    @classmethod
+    def from_orm(cls, log: ScrapeJobLog) -> "ScrapeJobLogResponse":
+        return cls(
+            id=str(log.id),
+            job_id=str(log.job_id),
+            level=log.level,
+            message=log.message,
+            created_at=log.created_at.isoformat(),
+        )
+
+
+class ScrapeRuntimeResponse(BaseModel):
+    job_id: str
+    status: str
+    cpu_cap_mode: str
+    cpu_cap_percent: int
+    cpu_cores: int
+    allowed_cores: float
+    embedding_threads: int
+    pause_requested: bool
+    cancel_requested: bool
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -140,6 +177,16 @@ async def _run_job_safe(job_id: str) -> None:
         logger.exception("Scrape job %s crashed: %s", job_id, exc)
         try:
             async with AsyncSessionLocal() as session:
+                session.add(
+                    ScrapeJobLog(
+                        job_id=uuid.UUID(job_id),
+                        level="error",
+                        message=f"Job crashed: {exc}",
+                    )
+                )
+                await session.commit()
+
+            async with AsyncSessionLocal() as session:
                 job = await session.get(ScrapeJob, uuid.UUID(job_id))
                 if job:
                     job.status = "failed"
@@ -178,6 +225,66 @@ async def get_scrape_job(job_id: str, _: CurrentUser) -> ScrapeJobResponse:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return ScrapeJobResponse.from_orm(job)
+
+
+@router.get("/scrape/{job_id}/logs", response_model=list[ScrapeJobLogResponse])
+async def get_scrape_job_logs(
+    job_id: str,
+    _: CurrentUser,
+    after_id: str | None = None,
+    limit: int = 1000,
+) -> list[ScrapeJobLogResponse]:
+    """Return newest log lines for a scrape job; optionally only entries after a given id."""
+    safe_limit = max(1, min(limit, 1000))
+
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ScrapeJob, uuid.UUID(job_id))
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        query = select(ScrapeJobLog).where(ScrapeJobLog.job_id == uuid.UUID(job_id))
+
+        if after_id:
+            after_log = await session.get(ScrapeJobLog, uuid.UUID(after_id))
+            if after_log and str(after_log.job_id) == job_id:
+                query = query.where(ScrapeJobLog.created_at > after_log.created_at)
+
+        result = await session.execute(
+            query.order_by(ScrapeJobLog.created_at.asc()).limit(safe_limit)
+        )
+        logs = result.scalars().all()
+
+    return [ScrapeJobLogResponse.from_orm(log) for log in logs]
+
+
+@router.get("/scrape/{job_id}/runtime", response_model=ScrapeRuntimeResponse)
+async def get_scrape_job_runtime(job_id: str, _: CurrentUser) -> ScrapeRuntimeResponse:
+    """Expose computed runtime cap details for transparent throttling diagnostics."""
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ScrapeJob, uuid.UUID(job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    cores = max(1, (os.cpu_count() or 1))
+    if job.cpu_cap_mode == "core":
+        allowed_cores = max(0.01, min(job.cpu_cap_percent / 100.0, float(cores)))
+        embedding_threads = max(1, min(cores, int((job.cpu_cap_percent + 99) // 100)))
+    else:
+        ratio = max(0.01, min(job.cpu_cap_percent, 100)) / 100.0
+        allowed_cores = max(0.01, ratio * float(cores))
+        embedding_threads = max(1, min(cores, int((cores * job.cpu_cap_percent + 99) // 100)))
+
+    return ScrapeRuntimeResponse(
+        job_id=str(job.id),
+        status=job.status,
+        cpu_cap_mode=job.cpu_cap_mode,
+        cpu_cap_percent=job.cpu_cap_percent,
+        cpu_cores=cores,
+        allowed_cores=allowed_cores,
+        embedding_threads=embedding_threads,
+        pause_requested=job.pause_requested,
+        cancel_requested=job.cancel_requested,
+    )
 
 
 @router.patch("/scrape/{job_id}", response_model=ScrapeJobResponse)
@@ -230,6 +337,7 @@ async def delete_scrape_job(job_id: str, _: AdminUser) -> None:
             raise HTTPException(status_code=404, detail="Job not found")
         if job.status in ("pending", "running"):
             raise HTTPException(status_code=409, detail="Cannot delete a job that is still running")
+        await session.execute(delete(ScrapeJobLog).where(ScrapeJobLog.job_id == job.id))
         await session.delete(job)
         await session.commit()
 

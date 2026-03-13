@@ -3,6 +3,7 @@
 Supports cross-server migration for policies, smart groups, and static groups.
 """
 
+import logging
 import uuid
 from typing import Literal
 from typing import Annotated
@@ -25,6 +26,7 @@ from app.schemas.migrator import (
 from app.services.encryption import decrypt
 
 router = APIRouter(prefix="/migrator", tags=["migrator"])
+logger = logging.getLogger(__name__)
 
 
 async def _get_oauth_token(
@@ -56,7 +58,19 @@ async def _load_server(db: AsyncSession, server_id: uuid.UUID) -> JamfServer:
 
 
 def _group_is_smart(group: dict) -> bool:
-    return bool(group.get("is_smart") or group.get("isSmart") or group.get("is_smart_group"))
+    raw = group.get("is_smart")
+    if raw is None:
+        raw = group.get("isSmart")
+    if raw is None:
+        raw = group.get("is_smart_group")
+
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"true", "1", "yes"}
+    if isinstance(raw, (int, float)):
+        return raw != 0
+    return False
 
 
 def _normalize_list_payload(raw: dict, root_key: str, item_key: str) -> list[dict]:
@@ -223,6 +237,19 @@ async def _create_on_target(
         raise RuntimeError(f"Target create failed: HTTP {resp.status_code} {resp.text[:200]}")
 
 
+def _clear_static_group_members(payload: dict) -> None:
+    """Normalize static group members to empty for safe cross-server creation."""
+    computers = payload.get("computers")
+    if isinstance(computers, dict):
+        if "computer" in computers:
+            computers["computer"] = []
+        else:
+            payload["computers"] = {"computer": []}
+        return
+
+    payload["computers"] = {"computer": []}
+
+
 @router.get("/objects", response_model=ListMigratorObjectsResponse)
 async def list_objects(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -240,6 +267,14 @@ async def list_objects(
             decrypt(source.client_secret),
         )
         items = await _list_source_objects(client, source.url.rstrip("/"), token, entity_type)
+    logger.info(
+        "Loaded migrator objects",
+        extra={
+            "source_server_id": str(source_server_id),
+            "entity_type": entity_type,
+            "count": len(items),
+        },
+    )
 
     items.sort(key=lambda x: x.name.lower())
     return ListMigratorObjectsResponse(items=items)
@@ -307,7 +342,7 @@ async def migrate_objects(
 
                 # Static groups should not carry member IDs across servers by default.
                 if body.entity_type == "static_group" and not body.include_static_members:
-                    payload["computers"] = []
+                    _clear_static_group_members(payload)
 
                 await _create_on_target(
                     client,
@@ -327,6 +362,16 @@ async def migrate_objects(
                 )
             except Exception as exc:  # noqa: BLE001
                 failed += 1
+                logger.warning(
+                    "Migrator item failed",
+                    extra={
+                        "entity_type": body.entity_type,
+                        "object_id": object_id,
+                        "source_server_id": str(body.source_server_id),
+                        "target_server_id": str(body.target_server_id),
+                        "error": str(exc),
+                    },
+                )
                 results.append(
                     MigrationItemResult(
                         object_id=object_id,

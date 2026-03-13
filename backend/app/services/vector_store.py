@@ -35,15 +35,21 @@ def _chunk_text(text: str) -> list[str]:
     return [c.strip() for c in chunks if c.strip()]
 
 
-async def _embed(texts: list[str]) -> list[list[float]]:
+async def _embed(texts: list[str], num_thread: int | None = None) -> list[list[float]]:
     """Call Ollama /api/embeddings for a batch of texts."""
     settings = get_settings()
     embeddings: list[list[float]] = []
     async with httpx.AsyncClient(timeout=60.0) as client:
         for text in texts:
+            payload: dict[str, Any] = {
+                "model": settings.embedding_model_name,
+                "prompt": text,
+            }
+            if num_thread is not None:
+                payload["options"] = {"num_thread": max(1, int(num_thread))}
             resp = await client.post(
                 f"{settings.ollama_base_url}/api/embeddings",
-                json={"model": settings.embedding_model_name, "prompt": text},
+                json=payload,
             )
             resp.raise_for_status()
             embeddings.append(resp.json()["embedding"])
@@ -54,6 +60,7 @@ async def ingest_document(
     source_url: str,
     title: str,
     text: str,
+    num_thread: int | None = None,
 ) -> tuple[int, list[str]]:
     """
     Chunk, embed, and store a document in ChromaDB.
@@ -64,7 +71,7 @@ async def ingest_document(
         return 0, []
 
     try:
-        embeddings = await _embed(chunks)
+        embeddings = await _embed(chunks, num_thread=num_thread)
     except Exception as exc:
         logger.error("Embedding failed for %s: %s", source_url, exc)
         raise

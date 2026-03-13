@@ -14,6 +14,7 @@ import {
   Loader2,
   X,
   Settings2,
+  FileText,
   Pause,
   Play,
   StopCircle,
@@ -37,6 +38,9 @@ interface ScrapeJob {
   cancel_requested: boolean;
   cpu_cap_mode: "total" | "core";
   cpu_cap_percent: number;
+  seed_mode: "sitemap" | "start_url";
+  seed_urls: number;
+  sitemap_timed_out: boolean;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -56,6 +60,26 @@ interface KnowledgeSource {
   chunk_count: number;
   size_bytes: number;
   ingested_at: string;
+}
+
+interface ScrapeJobLog {
+  id: string;
+  job_id: string;
+  level: "info" | "warning" | "error" | string;
+  message: string;
+  created_at: string;
+}
+
+interface ScrapeRuntime {
+  job_id: string;
+  status: string;
+  cpu_cap_mode: "total" | "core";
+  cpu_cap_percent: number;
+  cpu_cores: number;
+  allowed_cores: number;
+  embedding_threads: number;
+  pause_requested: boolean;
+  cancel_requested: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -403,10 +427,101 @@ function JobSettingsModal({
   );
 }
 
+function JobLogsModal({
+  job,
+  onClose,
+}: {
+  job: ScrapeJob;
+  onClose: () => void;
+}) {
+  const logContainerRef = useRef<HTMLDivElement | null>(null);
+  const isActive = job.status === "pending" || job.status === "running";
+
+  const { data: logs = [], isLoading, isFetching } = useQuery<ScrapeJobLog[]>({
+    queryKey: ["scrape-job-logs", job.id],
+    queryFn: () => api.get<ScrapeJobLog[]>(`/knowledge/scrape/${job.id}/logs?limit=2000`).then((r) => r.data),
+    refetchInterval: isActive ? 1500 : false,
+  });
+
+  const { data: runtime } = useQuery<ScrapeRuntime>({
+    queryKey: ["scrape-job-runtime", job.id],
+    queryFn: () => api.get<ScrapeRuntime>(`/knowledge/scrape/${job.id}/runtime`).then((r) => r.data),
+    refetchInterval: isActive ? 1500 : false,
+  });
+
+  useEffect(() => {
+    if (!logContainerRef.current) return;
+    logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+  }, [logs.length]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Live Job Logs</h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{job.domain}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isFetching && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+            <button onClick={onClose} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
+              <X className="h-4 w-4 text-gray-400" />
+            </button>
+          </div>
+        </div>
+
+        {runtime && (
+          <div className="mb-3 grid grid-cols-2 gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2 text-xs dark:border-gray-700 dark:bg-gray-800/60 md:grid-cols-4">
+            <div className="text-gray-600 dark:text-gray-300">Mode: <span className="font-medium">{runtime.cpu_cap_mode}</span></div>
+            <div className="text-gray-600 dark:text-gray-300">Cap: <span className="font-medium">{runtime.cpu_cap_percent}%</span></div>
+            <div className="text-gray-600 dark:text-gray-300">Allowed cores: <span className="font-medium">{runtime.allowed_cores.toFixed(2)}</span></div>
+            <div className="text-gray-600 dark:text-gray-300">Embedding threads: <span className="font-medium">{runtime.embedding_threads}</span></div>
+          </div>
+        )}
+
+        <div
+          ref={logContainerRef}
+          className="h-[60vh] overflow-y-auto rounded-lg border border-gray-200 bg-gray-950 p-3 font-mono text-xs dark:border-gray-700"
+        >
+          {isLoading ? (
+            <div className="flex h-full items-center justify-center text-gray-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </div>
+          ) : logs.length === 0 ? (
+            <p className="text-gray-400">No log lines yet for this job.</p>
+          ) : (
+            <div className="space-y-1">
+              {logs.map((line) => (
+                <div key={line.id} className="whitespace-pre-wrap break-words">
+                  <span className="text-gray-500">[{new Date(line.created_at).toLocaleTimeString()}]</span>{" "}
+                  <span
+                    className={cn(
+                      "uppercase",
+                      line.level === "error"
+                        ? "text-red-400"
+                        : line.level === "warning"
+                          ? "text-amber-400"
+                          : "text-cyan-300",
+                    )}
+                  >
+                    {line.level}
+                  </span>{" "}
+                  <span className="text-gray-100">{line.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function KnowledgePage() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
   const [settingsJob, setSettingsJob] = useState<ScrapeJob | null>(null);
+  const [logsJob, setLogsJob] = useState<ScrapeJob | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<ScrapeJob[]>({
@@ -486,6 +601,7 @@ export default function KnowledgePage() {
           }}
         />
       )}
+      {logsJob && <JobLogsModal job={logsJob} onClose={() => setLogsJob(null)} />}
 
       {/* Scrape Jobs */}
       <section>
@@ -526,6 +642,10 @@ export default function KnowledgePage() {
                         {(job.bytes_scraped / 1048576).toFixed(1)} MB
                         {job.max_size_mb !== null ? ` / ${job.max_size_mb} MB` : ""}
                       </div>
+                      <div className="text-gray-400">
+                        Seed: {job.seed_mode === "sitemap" ? `sitemap (${job.seed_urls})` : `start URL (${job.seed_urls})`}
+                        {job.sitemap_timed_out ? " • sitemap timeout" : ""}
+                      </div>
                       {job.status === "running" && job.max_pages !== null && (
                         <div className="mt-1 h-1 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
                           <div
@@ -555,6 +675,13 @@ export default function KnowledgePage() {
                       {job.finished_at ? new Date(job.finished_at).toLocaleString() : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => setLogsJob(job)}
+                        className="mr-2 inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        Logs
+                      </button>
                       {(job.status === "pending" || job.status === "running") && (
                         <button
                           onClick={() => setSettingsJob(job)}

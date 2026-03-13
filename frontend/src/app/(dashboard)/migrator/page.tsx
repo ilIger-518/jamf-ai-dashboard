@@ -70,6 +70,8 @@ export default function MigratorPage() {
   const {
     data: objects,
     isLoading: objectsLoading,
+    isError: objectsError,
+    error: objectsErrorValue,
     refetch,
   } = useQuery<ListMigratorObjectsResponse>({
     queryKey: ["migrator", "objects", sourceServerId, entityType],
@@ -107,6 +109,10 @@ export default function MigratorPage() {
   });
 
   const allObjects = objects?.items ?? [];
+  const objectsErrorMessage =
+    (objectsErrorValue as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+    (objectsErrorValue as Error | undefined)?.message ??
+    "Failed to load objects from source server";
   const allChecked = allObjects.length > 0 && selectedIds.length === allObjects.length;
 
   const canRunMigration = useMemo(
@@ -259,6 +265,8 @@ export default function MigratorPage() {
           <div className="flex items-center justify-center py-10">
             <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
           </div>
+        ) : objectsError ? (
+          <div className="px-4 py-10 text-sm text-red-600 dark:text-red-400">{objectsErrorMessage}</div>
         ) : allObjects.length === 0 ? (
           <div className="px-4 py-10 text-sm text-gray-500 dark:text-gray-400">No objects found for this type.</div>
         ) : (
