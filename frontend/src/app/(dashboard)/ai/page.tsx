@@ -14,6 +14,8 @@ import {
   ShieldCheck,
   Wrench,
   Square,
+  Check,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -71,6 +73,7 @@ export default function AiAssistantPage() {
   const [targetServerId, setTargetServerId] = useState<string>("");
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingText, setThinkingText] = useState("Idle");
+  const [streamReply, setStreamReply] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -169,8 +172,9 @@ export default function AiAssistantPage() {
         const trimmed = line.trim();
         if (!trimmed) continue;
         const event = JSON.parse(trimmed) as {
-          type: "stage" | "final" | "error";
+          type: "stage" | "delta" | "final" | "error";
           message?: string;
+          content?: string;
           session_id?: string;
           reply?: string;
           sources?: string[];
@@ -178,6 +182,12 @@ export default function AiAssistantPage() {
 
         if (event.type === "stage") {
           setThinkingText(event.message ?? "Thinking...");
+          continue;
+        }
+        if (event.type === "delta") {
+          if (event.content) {
+            setStreamReply((prev) => prev + event.content);
+          }
           continue;
         }
         if (event.type === "error") {
@@ -199,14 +209,13 @@ export default function AiAssistantPage() {
     return finalPayload;
   };
 
-  const handleSend = () => {
-    const text = input.trim();
-    if (!text || isThinking) return;
+  const sendText = (text: string) => {
+    if (!text.trim() || isThinking) return;
     const controller = new AbortController();
     abortControllerRef.current = controller;
-    setInput("");
     setIsThinking(true);
     setThinkingText("Starting...");
+    setStreamReply("");
     setLocalMessages((m) => [...m, { role: "user", content: text }]);
     void sendStreamMessage(text, controller.signal)
       .then((data) => {
@@ -232,7 +241,15 @@ export default function AiAssistantPage() {
       .finally(() => {
         abortControllerRef.current = null;
         setIsThinking(false);
+        setStreamReply("");
       });
+  };
+
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text || isThinking) return;
+    setInput("");
+    sendText(text);
   };
 
   const handleStop = () => {
@@ -241,6 +258,7 @@ export default function AiAssistantPage() {
     setLocalMessages((m) => [...m, { role: "assistant", content: "Stopped." }]);
     setIsThinking(false);
     setThinkingText("Stopped");
+    setStreamReply("");
   };
 
   // ---- New chat ----
@@ -271,6 +289,12 @@ export default function AiAssistantPage() {
   };
 
   const displayMessages = activeSessionId ? localMessages : localMessages;
+  const lastAssistantMessage = [...displayMessages].reverse().find((m) => m.role === "assistant");
+  const hasPendingApproval =
+    botMode === "policy_builder" &&
+    !!lastAssistantMessage?.content &&
+    lastAssistantMessage.content.includes("API command preview") &&
+    lastAssistantMessage.content.includes("Reply with `approve` to execute or `cancel` to discard.");
 
   return (
     <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
@@ -408,7 +432,7 @@ export default function AiAssistantPage() {
               )}
             >
               <Wrench className="h-3.5 w-3.5" />
-              Policy Builder
+              Policy & Group Builder
             </button>
 
             {botMode === "policy_builder" && (
@@ -435,20 +459,20 @@ export default function AiAssistantPage() {
                 <Bot className="h-10 w-10 text-blue-600 dark:text-blue-400" />
               </div>
               <p className="text-base font-medium text-gray-700 dark:text-gray-300">
-                {botMode === "policy_builder" ? "Jamf Policy Builder" : "Jamf AI Assistant"}
+                {botMode === "policy_builder" ? "Jamf Policy & Group Builder" : "Jamf AI Assistant"}
               </p>
               <p className="max-w-sm text-sm text-gray-500 dark:text-gray-400">
                 {botMode === "policy_builder"
-                  ? "Ask for policy drafts or request policy creation on the selected Jamf server."
+                  ? "Ask for policy or group drafts, or request creation on the selected Jamf server."
                   : "Ask questions about your devices, policies, patch status, or compliance. Powered by your local Ollama instance."}
               </p>
               <div className="mt-2 grid grid-cols-2 gap-2 text-left text-xs">
                 {(botMode === "policy_builder"
                   ? [
                       "Create a policy to install Zoom at startup",
-                      "Create a policy to run inventory update daily",
+                      "Create a static group for all marketing laptops",
+                      "Create a smart group for computers with names containing LAB",
                       "Draft a policy for FileVault compliance reminder",
-                      "Create a policy to run a custom script at login",
                     ]
                   : [
                       "How many unmanaged devices do I have?",
@@ -525,11 +549,15 @@ export default function AiAssistantPage() {
                     <Bot className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   </div>
                   <div className="rounded-2xl bg-gray-100 px-4 py-2.5 text-sm text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-                    <span className="inline-flex gap-1">
-                      <span className="animate-bounce">●</span>
-                      <span className="animate-bounce [animation-delay:0.1s]">●</span>
-                      <span className="animate-bounce [animation-delay:0.2s]">●</span>
-                    </span>
+                    {streamReply ? (
+                      <p className="whitespace-pre-wrap text-gray-700 dark:text-gray-200">{streamReply}</p>
+                    ) : (
+                      <span className="inline-flex gap-1">
+                        <span className="animate-bounce">●</span>
+                        <span className="animate-bounce [animation-delay:0.1s]">●</span>
+                        <span className="animate-bounce [animation-delay:0.2s]">●</span>
+                      </span>
+                    )}
                     <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">{thinkingText}</p>
                   </div>
                 </div>
@@ -546,6 +574,25 @@ export default function AiAssistantPage() {
               AI thinking: {thinkingText}
             </div>
           )}
+          {hasPendingApproval && !isThinking && (
+            <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 text-[11px]">
+              <button
+                onClick={() => sendText("approve")}
+                className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+              >
+                <Check className="h-3 w-3" />
+                Approve
+              </button>
+              <button
+                onClick={() => sendText("cancel")}
+                className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-rose-700 hover:bg-rose-100 dark:border-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+              >
+                <X className="h-3 w-3" />
+                Cancel
+              </button>
+              <span className="text-gray-500 dark:text-gray-400">Pending action preview detected.</span>
+            </div>
+          )}
           <div className="mx-auto flex max-w-3xl gap-2">
             <input
               ref={inputRef}
@@ -554,7 +601,7 @@ export default function AiAssistantPage() {
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
               placeholder={
                 botMode === "policy_builder"
-                  ? "Ask Policy Builder to draft or create a Jamf policy…"
+                  ? "Ask Policy & Group Builder to draft or create a Jamf policy or computer group…"
                   : "Ask about your Jamf environment…"
               }
               disabled={isThinking}

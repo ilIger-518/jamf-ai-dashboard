@@ -5,6 +5,7 @@ import json
 import re
 import uuid as uuid_lib
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Literal
 
 import httpx
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
+_PENDING_ACTIONS: dict[str, dict] = {}
+_PENDING_ACTIONS_LOCK = Lock()
+
 SYSTEM_PROMPT = """You are a helpful assistant for a Jamf Pro monitoring dashboard.
 You have access to live summary statistics about the managed environment and, when available,
 relevant documentation retrieved from the knowledge base.
@@ -36,10 +40,11 @@ Answer questions about devices, policies, patch management, compliance, and Jamf
 Be concise and precise. If you don't know something, say so rather than guessing.
 Do not invent device names, serial numbers, or policy details that are not in the data provided."""
 
-POLICY_PROMPT = """You are Jamf Policy Builder AI.
-You can do two things:
-1) Explain policy concepts and suggest safe defaults.
+POLICY_PROMPT = """You are Jamf Policy and Group Builder AI.
+You can do three things:
+1) Explain policy and group concepts with safe defaults.
 2) Create Jamf policies when the user asks to create one.
+3) Create Jamf computer groups (smart or static) when requested.
 
 When a policy creation request is ambiguous, ask one concise clarification question.
 Keep answers concise and operational.
@@ -98,6 +103,73 @@ def _looks_like_policy_create_intent(message: str) -> bool:
     return ("policy" in msg) and any(k in msg for k in ["create", "make", "build", "new"])
 
 
+def _looks_like_group_create_intent(message: str) -> bool:
+    msg = message.lower()
+    has_group = "group" in msg or "computer group" in msg
+    has_verb = any(k in msg for k in ["create", "make", "build", "new"])
+    return has_group and has_verb
+
+
+def _looks_like_script_create_intent(message: str) -> bool:
+    msg = message.lower()
+    has_script = "script" in msg
+    has_verb = any(k in msg for k in ["create", "make", "build", "new"])
+    return has_script and has_verb
+
+
+def _is_approval_intent(message: str) -> bool:
+    msg = message.strip().lower()
+    return msg in {
+        "approve",
+        "confirm",
+        "yes",
+        "yes, approve",
+        "yes approve",
+        "run it",
+        "execute",
+        "go ahead",
+    }
+
+
+def _is_cancel_intent(message: str) -> bool:
+    msg = message.strip().lower()
+    return msg in {"cancel", "stop", "abort", "never mind", "nevermind"}
+
+
+def _pending_key(user_id: object, session_id: str) -> str:
+    return f"{user_id}:{session_id}"
+
+
+def _set_pending_action(user_id: object, session_id: str, action: dict) -> None:
+    with _PENDING_ACTIONS_LOCK:
+        _PENDING_ACTIONS[_pending_key(user_id, session_id)] = action
+
+
+def _peek_pending_action(user_id: object, session_id: str) -> dict | None:
+    with _PENDING_ACTIONS_LOCK:
+        return _PENDING_ACTIONS.get(_pending_key(user_id, session_id))
+
+
+def _pop_pending_action(user_id: object, session_id: str) -> dict | None:
+    with _PENDING_ACTIONS_LOCK:
+        return _PENDING_ACTIONS.pop(_pending_key(user_id, session_id), None)
+
+
+def _clear_pending_action(user_id: object, session_id: str) -> None:
+    with _PENDING_ACTIONS_LOCK:
+        _PENDING_ACTIONS.pop(_pending_key(user_id, session_id), None)
+
+
+def _extract_json_object(content: str) -> dict | None:
+    match = re.search(r"\{[\s\S]*\}", content)
+    raw = match.group(0) if match else content
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 async def _policy_spec_from_prompt(message: str) -> dict:
     """Ask Ollama to produce a minimal policy spec as JSON."""
     settings = get_settings()
@@ -121,12 +193,8 @@ async def _policy_spec_from_prompt(message: str) -> dict:
         resp.raise_for_status()
         content = resp.json()["message"]["content"].strip()
 
-    # Extract JSON object if model wraps it in prose.
-    match = re.search(r"\{[\s\S]*\}", content)
-    raw = match.group(0) if match else content
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
+    parsed = _extract_json_object(content)
+    if parsed is None:
         fallback_name = message.strip()[:80] or "Jamf AI Policy"
         return {
             "name": fallback_name,
@@ -158,6 +226,289 @@ async def _policy_spec_from_prompt(message: str) -> dict:
     }
 
 
+async def _group_spec_from_prompt(message: str) -> dict:
+    """Ask Ollama to produce a minimal group spec as JSON."""
+    settings = get_settings()
+    prompt = (
+        "Return ONLY JSON. No markdown.\n"
+        "Generate a Jamf computer group draft from this request.\n"
+        "Fields: name (string), group_type (smart|static), notes (string), "
+        "criteria_value (string, optional for smart groups).\n"
+        f"User request: {message}"
+    )
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{settings.ollama_base_url}/api/chat",
+            json={
+                "model": settings.ollama_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"temperature": 0.1},
+            },
+        )
+        resp.raise_for_status()
+        content = resp.json()["message"]["content"].strip()
+
+    parsed = _extract_json_object(content)
+    fallback_name = message.strip()[:80] or "Jamf AI Group"
+    if parsed is None:
+        return {
+            "name": fallback_name,
+            "group_type": "static",
+            "notes": "Generated by Jamf AI Policy and Group Builder",
+            "criteria_value": "",
+        }
+
+    name = (parsed.get("name") or fallback_name).strip()[:128]
+    group_type = str(parsed.get("group_type") or "static").strip().lower()
+    if group_type not in {"smart", "static"}:
+        group_type = "smart" if "smart" in message.lower() else "static"
+    notes = (
+        str(parsed.get("notes") or "Generated by Jamf AI Policy and Group Builder")
+        .strip()[:1024]
+    )
+    criteria_value = str(parsed.get("criteria_value") or "").strip()[:128]
+    return {
+        "name": name,
+        "group_type": group_type,
+        "notes": notes,
+        "criteria_value": criteria_value,
+    }
+
+
+async def _script_spec_from_prompt(message: str) -> dict:
+    """Ask Ollama to produce a minimal script spec as JSON."""
+    settings = get_settings()
+    prompt = (
+        "Return ONLY JSON. No markdown.\n"
+        "Generate a Jamf script draft from this request.\n"
+        "Fields: name (string), script_contents (string), notes (string), info (string), priority (Before|After).\n"
+        f"User request: {message}"
+    )
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{settings.ollama_base_url}/api/chat",
+            json={
+                "model": settings.ollama_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "options": {"temperature": 0.1},
+            },
+        )
+        resp.raise_for_status()
+        content = resp.json()["message"]["content"].strip()
+
+    parsed = _extract_json_object(content)
+    fallback_name = message.strip()[:80] or "Jamf AI Script"
+    if parsed is None:
+        return {
+            "name": fallback_name,
+            "script_contents": "#!/bin/bash\n\nexit 0\n",
+            "notes": "Generated by Jamf AI Policy and Group Builder",
+            "info": "Generated by Jamf AI",
+            "priority": "After",
+        }
+
+    name = (str(parsed.get("name") or fallback_name)).strip()[:128]
+    script_contents = str(parsed.get("script_contents") or "#!/bin/bash\n\nexit 0\n")
+    if not script_contents.startswith("#!"):
+        script_contents = "#!/bin/bash\n" + script_contents
+    notes = str(parsed.get("notes") or "Generated by Jamf AI").strip()[:1024]
+    info = str(parsed.get("info") or "Generated by Jamf AI").strip()[:1024]
+    priority = str(parsed.get("priority") or "After").strip()
+    if priority not in {"Before", "After"}:
+        priority = "After"
+    return {
+        "name": name,
+        "script_contents": script_contents,
+        "notes": notes,
+        "info": info,
+        "priority": priority,
+    }
+
+
+async def _resolve_target_server(target_server_id: str | None) -> JamfServer | None:
+    async with AsyncSessionLocal() as db:
+        query = select(JamfServer).where(JamfServer.is_active.is_(True)).order_by(JamfServer.name.asc())
+        if target_server_id:
+            query = select(JamfServer).where(JamfServer.id == uuid_lib.UUID(target_server_id))
+        result = await db.execute(query)
+        return result.scalar_one_or_none()
+
+
+def _format_preview(action: dict) -> str:
+    base_url = action["base_url"]
+    endpoint = action["endpoint"]
+    payload = action["body"]
+    kind = action["kind"]
+    server_name = action["server_name"]
+    body_json = json.dumps(payload, ensure_ascii=True, indent=2)
+    return (
+        f"Planned {kind} create on {server_name}.\n"
+        "API command preview (not executed yet):\n"
+        "```bash\n"
+        f"curl -X POST '{base_url}{endpoint}' \\\n+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \\\n+  -H 'Accept: application/json' \\\n+  -H 'Content-Type: application/json' \\\n+  -d '{body_json}'\n"
+        "```\n"
+        "Reply with `approve` to execute or `cancel` to discard."
+    )
+
+
+async def _build_action_plan(
+    message: str,
+    current_user,
+    target_server_id: str | None,
+) -> dict | None:
+    permissions = get_user_permissions(current_user)
+    if "servers.manage" not in permissions and not current_user.is_admin:
+        return {
+            "error": "You do not have permission to create objects. Required: servers.manage"
+        }
+
+    if not (
+        _looks_like_policy_create_intent(message)
+        or _looks_like_group_create_intent(message)
+        or _looks_like_script_create_intent(message)
+    ):
+        return None
+
+    server = await _resolve_target_server(target_server_id)
+    if not server:
+        return {"error": "No target Jamf server found. Select a server and try again."}
+
+    base_url = server.url.rstrip("/")
+
+    if _looks_like_script_create_intent(message):
+        spec = await _script_spec_from_prompt(message)
+        return {
+            "kind": "script",
+            "server_id": str(server.id),
+            "server_name": server.name,
+            "base_url": base_url,
+            "endpoint": "/JSSResource/scripts/id/0",
+            "body": {"script": spec},
+        }
+
+    if _looks_like_policy_create_intent(message):
+        spec = await _policy_spec_from_prompt(message)
+        return {
+            "kind": "policy",
+            "server_id": str(server.id),
+            "server_name": server.name,
+            "base_url": base_url,
+            "endpoint": "/JSSResource/policies/id/0",
+            "body": {
+                "policy": {
+                    "general": {
+                        "name": spec["name"],
+                        "enabled": spec["enabled"],
+                        "trigger": spec["trigger"],
+                        "trigger_other": spec["trigger_other"],
+                        "frequency": spec["frequency"],
+                        "notes": spec["notes"],
+                    },
+                    "scope": {"all_computers": False},
+                    "self_service": {"use_for_self_service": False},
+                }
+            },
+        }
+
+    spec = await _group_spec_from_prompt(message)
+    if spec["group_type"] == "smart":
+        body = {
+            "computer_group": {
+                "name": spec["name"],
+                "is_smart": True,
+                "criteria": {
+                    "criterion": [
+                        {
+                            "name": "Computer Name",
+                            "priority": 0,
+                            "and_or": "and",
+                            "search_type": "like",
+                            "value": spec["criteria_value"] or "-",
+                        }
+                    ]
+                },
+            }
+        }
+    else:
+        body = {
+            "computer_group": {
+                "name": spec["name"],
+                "is_smart": False,
+                "computers": {"computer": []},
+            }
+        }
+    return {
+        "kind": "group",
+        "group_type": spec["group_type"],
+        "server_id": str(server.id),
+        "server_name": server.name,
+        "base_url": base_url,
+        "endpoint": "/JSSResource/computergroups/id/0",
+        "body": body,
+    }
+
+
+async def _execute_action_plan(current_user, action: dict) -> str:
+    permissions = get_user_permissions(current_user)
+    if "servers.manage" not in permissions and not current_user.is_admin:
+        return "You do not have permission to create objects. Required: servers.manage"
+
+    server = await _resolve_target_server(action.get("server_id"))
+    if not server:
+        return "Target server no longer exists."
+
+    base_url = server.url.rstrip("/")
+    client_id = decrypt(server.client_id)
+    client_secret = decrypt(server.client_secret)
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        token = await _oauth_token(client, base_url, client_id, client_secret)
+        if not token:
+            return "Execution failed: OAuth token error."
+
+        resp = await client.post(
+            f"{base_url}{action['endpoint']}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json=action["body"],
+        )
+        if resp.status_code not in (200, 201):
+            return (
+                f"{action['kind'].capitalize()} create failed on {server.name} "
+                f"({resp.status_code}): {resp.text[:300]}"
+            )
+
+    if action["kind"] == "group":
+        kind_label = f"{action.get('group_type', 'static')} group"
+        group_name = (action["body"].get("computer_group") or {}).get("name", "Unnamed Group")
+        return f"Created {kind_label} on {server.name}: '{group_name}'."
+    if action["kind"] == "policy":
+        policy_name = (((action["body"].get("policy") or {}).get("general") or {}).get("name", "Unnamed Policy"))
+        return f"Created policy on {server.name}: '{policy_name}'."
+    script_name = (action["body"].get("script") or {}).get("name", "Unnamed Script")
+    return f"Created script on {server.name}: '{script_name}'."
+
+
+async def _oauth_token(client: httpx.AsyncClient, base_url: str, client_id: str, client_secret: str) -> str | None:
+    token_resp = await client.post(
+        f"{base_url}/api/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    if token_resp.status_code not in (200, 201):
+        return None
+    return token_resp.json().get("access_token")
+
+
 async def _create_policy_on_server(
     message: str,
     current_user,
@@ -167,12 +518,7 @@ async def _create_policy_on_server(
     if "servers.manage" not in permissions and not current_user.is_admin:
         return "You do not have permission to create policies. Required: servers.manage"
 
-    async with AsyncSessionLocal() as db:
-        query = select(JamfServer).where(JamfServer.is_active.is_(True)).order_by(JamfServer.name.asc())
-        if target_server_id:
-            query = select(JamfServer).where(JamfServer.id == uuid_lib.UUID(target_server_id))
-        result = await db.execute(query)
-        server = result.scalar_one_or_none()
+    server = await _resolve_target_server(target_server_id)
 
     if not server:
         return "No target Jamf server found. Select a server and try again."
@@ -184,19 +530,9 @@ async def _create_policy_on_server(
     client_secret = decrypt(server.client_secret)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        token_resp = await client.post(
-            f"{base_url}/api/oauth/token",
-            data={
-                "grant_type": "client_credentials",
-                "client_id": client_id,
-                "client_secret": client_secret,
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        if token_resp.status_code not in (200, 201):
-            return f"Policy create failed: OAuth token error ({token_resp.status_code})."
-
-        token = token_resp.json().get("access_token")
+        token = await _oauth_token(client, base_url, client_id, client_secret)
+        if not token:
+            return "Policy create failed: OAuth token error."
         payload = {
             "policy": {
                 "general": {
@@ -230,6 +566,83 @@ async def _create_policy_on_server(
         f"Policy created on {server.name}: '{spec['name']}' "
         f"(trigger={spec['trigger']}, frequency={spec['frequency']})."
     )
+
+
+async def _create_group_on_server(
+    message: str,
+    current_user,
+    target_server_id: str | None,
+) -> str:
+    permissions = get_user_permissions(current_user)
+    if "servers.manage" not in permissions and not current_user.is_admin:
+        return "You do not have permission to create groups. Required: servers.manage"
+
+    server = await _resolve_target_server(target_server_id)
+    if not server:
+        return "No target Jamf server found. Select a server and try again."
+
+    spec = await _group_spec_from_prompt(message)
+    base_url = server.url.rstrip("/")
+    client_id = decrypt(server.client_id)
+    client_secret = decrypt(server.client_secret)
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        token = await _oauth_token(client, base_url, client_id, client_secret)
+        if not token:
+            return "Group create failed: OAuth token error."
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        endpoint = f"{base_url}/JSSResource/computergroups/id/0"
+
+        # Smart groups require criteria. If none is available, we fall back to static.
+        wants_smart = spec["group_type"] == "smart"
+        if wants_smart:
+            criteria_value = spec["criteria_value"] or "-"
+            smart_payload = {
+                "computer_group": {
+                    "name": spec["name"],
+                    "is_smart": True,
+                    "criteria": {
+                        "criterion": [
+                            {
+                                "name": "Computer Name",
+                                "priority": 0,
+                                "and_or": "and",
+                                "search_type": "like",
+                                "value": criteria_value,
+                            }
+                        ]
+                    },
+                }
+            }
+            smart_resp = await client.post(endpoint, headers=headers, json=smart_payload)
+            if smart_resp.status_code in (200, 201):
+                return f"Smart group created on {server.name}: '{spec['name']}'."
+
+        static_payload = {
+            "computer_group": {
+                "name": spec["name"],
+                "is_smart": False,
+                "computers": {"computer": []},
+            }
+        }
+        static_resp = await client.post(endpoint, headers=headers, json=static_payload)
+        if static_resp.status_code not in (200, 201):
+            return (
+                "Group create failed on Jamf target "
+                f"{server.name} ({static_resp.status_code}): {static_resp.text[:300]}"
+            )
+
+    if spec["group_type"] == "smart":
+        return (
+            f"Static group created on {server.name}: '{spec['name']}'. "
+            "Smart group creation was requested, but static fallback was applied."
+        )
+    return f"Static group created on {server.name}: '{spec['name']}'."
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +744,69 @@ async def _call_ollama(history: list[dict]) -> str:
         raise HTTPException(status_code=502, detail="Ollama returned an error. Check backend logs.")
     except Exception as exc:
         logger.exception("Unexpected AI error: %s", exc)
+        raise HTTPException(status_code=500, detail="Unexpected error calling the AI service.")
+
+
+async def _stream_ollama(history: list[dict]):
+    """Stream incremental text chunks from Ollama."""
+    settings = get_settings()
+    timeout = httpx.Timeout(
+        connect=10.0,
+        read=float(settings.llm_timeout_seconds),
+        write=30.0,
+        pool=30.0,
+    )
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{settings.ollama_base_url}/api/chat",
+                json={
+                    "model": settings.ollama_model,
+                    "messages": history,
+                    "stream": True,
+                    "options": {"temperature": settings.llm_temperature},
+                },
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    evt = json.loads(line)
+                    chunk = (evt.get("message") or {}).get("content") or ""
+                    if chunk:
+                        yield chunk
+                    if evt.get("done"):
+                        break
+    except httpx.ConnectError:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Ollama is not reachable at {settings.ollama_base_url}. "
+                "Make sure the Ollama container is running and the model is pulled."
+            ),
+        )
+    except httpx.ReadTimeout:
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                "The AI model took too long to respond. "
+                "Try a shorter prompt, or increase LLM_TIMEOUT_SECONDS."
+            ),
+        )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Model '{settings.ollama_model}' is not available. "
+                    f"Pull it with: docker exec -it ollama ollama pull {settings.ollama_model}"
+                ),
+            )
+        logger.error("Ollama error: %s — %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=502, detail="Ollama returned an error. Check backend logs.")
+    except Exception as exc:
+        logger.exception("Unexpected AI stream error: %s", exc)
         raise HTTPException(status_code=500, detail="Unexpected error calling the AI service.")
 
 
@@ -498,17 +974,32 @@ async def chat(current_user: CurrentUser, body: ChatRequest) -> ChatResponse:
         await db.commit()
         session_id_str = str(session_obj.id)
 
-    # Call Ollama outside the DB transaction (can be slow)
-    reply = await _call_ollama(ollama_messages)
-
-    # Policy Builder mode can execute policy creation when explicitly requested.
-    if bot_mode == "policy_builder" and _looks_like_policy_create_intent(body.message):
-        action_result = await _create_policy_on_server(
-            message=body.message,
-            current_user=current_user,
-            target_server_id=body.target_server_id,
-        )
-        reply = f"{reply}\n\n{action_result}"
+    # Builder mode requires explicit approval before execution.
+    reply: str
+    if bot_mode == "policy_builder":
+        pending = _peek_pending_action(current_user.id, session_id_str)
+        if pending and _is_cancel_intent(body.message):
+            _clear_pending_action(current_user.id, session_id_str)
+            reply = "Canceled pending action."
+        elif pending and _is_approval_intent(body.message):
+            approved = _pop_pending_action(current_user.id, session_id_str)
+            if approved is None:
+                reply = "No pending action found."
+            else:
+                reply = await _execute_action_plan(current_user, approved)
+        else:
+            plan = await _build_action_plan(body.message, current_user, body.target_server_id)
+            if plan and plan.get("error"):
+                reply = str(plan["error"])
+            elif plan:
+                _set_pending_action(current_user.id, session_id_str, plan)
+                reply = _format_preview(plan)
+            else:
+                # Normal conversation when no create action is requested.
+                reply = await _call_ollama(ollama_messages)
+    else:
+        # Call Ollama outside the DB transaction (can be slow)
+        reply = await _call_ollama(ollama_messages)
 
     # Persist the assistant reply
     async with AsyncSessionLocal() as db:
@@ -596,17 +1087,61 @@ async def chat_stream(current_user: CurrentUser, body: ChatRequest) -> Streaming
                 await db.commit()
                 session_id_str = str(session_obj.id)
 
-            yield _ndjson_event({"type": "stage", "message": "Generating response..."})
-            reply = await _call_ollama(ollama_messages)
-
-            if bot_mode == "policy_builder" and _looks_like_policy_create_intent(body.message):
-                yield _ndjson_event({"type": "stage", "message": "Applying policy action..."})
-                action_result = await _create_policy_on_server(
-                    message=body.message,
-                    current_user=current_user,
-                    target_server_id=body.target_server_id,
-                )
-                reply = f"{reply}\n\n{action_result}"
+            if bot_mode == "policy_builder":
+                pending = _peek_pending_action(current_user.id, session_id_str)
+                if pending and _is_cancel_intent(body.message):
+                    _clear_pending_action(current_user.id, session_id_str)
+                    reply = "Canceled pending action."
+                elif pending and _is_approval_intent(body.message):
+                    yield _ndjson_event({"type": "stage", "message": "Executing approved action..."})
+                    approved = _pop_pending_action(current_user.id, session_id_str)
+                    if approved is None:
+                        reply = "No pending action found."
+                    else:
+                        reply = await _execute_action_plan(current_user, approved)
+                else:
+                    plan = await _build_action_plan(body.message, current_user, body.target_server_id)
+                    if plan and plan.get("error"):
+                        reply = str(plan["error"])
+                    elif plan:
+                        _set_pending_action(current_user.id, session_id_str, plan)
+                        reply = _format_preview(plan)
+                    else:
+                        yield _ndjson_event({"type": "stage", "message": "Generating response..."})
+                        reply_parts: list[str] = []
+                        word_buffer = ""
+                        async for chunk in _stream_ollama(ollama_messages):
+                            reply_parts.append(chunk)
+                            word_buffer += chunk
+                            tokens = re.findall(r"\s*\S+\s*", word_buffer)
+                            if tokens and word_buffer and not word_buffer[-1].isspace():
+                                tokens = tokens[:-1]
+                            consumed = "".join(tokens)
+                            if consumed:
+                                for token in tokens:
+                                    yield _ndjson_event({"type": "delta", "content": token})
+                                word_buffer = word_buffer[len(consumed):]
+                        if word_buffer:
+                            yield _ndjson_event({"type": "delta", "content": word_buffer})
+                        reply = "".join(reply_parts)
+            else:
+                yield _ndjson_event({"type": "stage", "message": "Generating response..."})
+                reply_parts: list[str] = []
+                word_buffer = ""
+                async for chunk in _stream_ollama(ollama_messages):
+                    reply_parts.append(chunk)
+                    word_buffer += chunk
+                    tokens = re.findall(r"\s*\S+\s*", word_buffer)
+                    if tokens and word_buffer and not word_buffer[-1].isspace():
+                        tokens = tokens[:-1]
+                    consumed = "".join(tokens)
+                    if consumed:
+                        for token in tokens:
+                            yield _ndjson_event({"type": "delta", "content": token})
+                        word_buffer = word_buffer[len(consumed):]
+                if word_buffer:
+                    yield _ndjson_event({"type": "delta", "content": word_buffer})
+                reply = "".join(reply_parts)
 
             yield _ndjson_event({"type": "stage", "message": "Saving response..."})
             async with AsyncSessionLocal() as db:
