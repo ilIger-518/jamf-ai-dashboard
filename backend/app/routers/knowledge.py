@@ -1,6 +1,7 @@
 """Knowledge base router — manage scrape jobs and stored knowledge sources."""
 
 import logging
+import os
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -40,6 +41,10 @@ class ScrapeJobResponse(BaseModel):
     pages_found: int
     bytes_scraped: int
     error: str | None
+    pause_requested: bool
+    cancel_requested: bool
+    cpu_cap_mode: str
+    cpu_cap_percent: int
     created_at: str
     started_at: str | None
     finished_at: str | None
@@ -57,6 +62,10 @@ class ScrapeJobResponse(BaseModel):
             pages_found=job.pages_found,
             bytes_scraped=job.bytes_scraped,
             error=job.error,
+            pause_requested=job.pause_requested,
+            cancel_requested=job.cancel_requested,
+            cpu_cap_mode=job.cpu_cap_mode,
+            cpu_cap_percent=job.cpu_cap_percent,
             created_at=job.created_at.isoformat(),
             started_at=job.started_at.isoformat() if job.started_at else None,
             finished_at=job.finished_at.isoformat() if job.finished_at else None,
@@ -83,6 +92,12 @@ class SourceResponse(BaseModel):
             size_bytes=doc.size_bytes,
             ingested_at=doc.ingested_at.isoformat(),
         )
+
+
+class ScrapeControlRequest(BaseModel):
+    action: str  # pause | resume | cancel
+    cpu_cap_mode: str | None = None  # total | core
+    cpu_cap_percent: int | None = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -145,6 +160,16 @@ async def list_scrape_jobs(_: CurrentUser) -> list[ScrapeJobResponse]:
     return [ScrapeJobResponse.from_orm(j) for j in jobs]
 
 
+@router.get("/scrape/system")
+async def get_scrape_system_info(_: CurrentUser) -> dict:
+    cores = max(1, (os.cpu_count() or 1))
+    return {
+        "cpu_cores": cores,
+        "max_total_percent": 100,
+        "max_core_percent": cores * 100,
+    }
+
+
 @router.get("/scrape/{job_id}", response_model=ScrapeJobResponse)
 async def get_scrape_job(job_id: str, _: CurrentUser) -> ScrapeJobResponse:
     """Get status of a single scrape job."""
@@ -153,6 +178,47 @@ async def get_scrape_job(job_id: str, _: CurrentUser) -> ScrapeJobResponse:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return ScrapeJobResponse.from_orm(job)
+
+
+@router.patch("/scrape/{job_id}", response_model=ScrapeJobResponse)
+async def control_scrape_job(job_id: str, body: ScrapeControlRequest, _: AdminUser) -> ScrapeJobResponse:
+    """Control a scrape job: pause/resume/cancel and update CPU cap settings."""
+    if body.action not in {"pause", "resume", "cancel"}:
+        raise HTTPException(status_code=400, detail="Invalid action")
+
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ScrapeJob, uuid.UUID(job_id))
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if job.status not in {"pending", "running"} and body.action in {"pause", "resume", "cancel"}:
+            raise HTTPException(status_code=409, detail="Job is no longer running")
+
+        if body.cpu_cap_mode is not None:
+            if body.cpu_cap_mode not in {"total", "core"}:
+                raise HTTPException(status_code=400, detail="cpu_cap_mode must be 'total' or 'core'")
+            job.cpu_cap_mode = body.cpu_cap_mode
+
+        if body.cpu_cap_percent is not None:
+            max_cap = 100 if job.cpu_cap_mode == "total" else max(1, (os.cpu_count() or 1)) * 100
+            if body.cpu_cap_percent < 1 or body.cpu_cap_percent > max_cap:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"cpu_cap_percent must be between 1 and {max_cap} for mode {job.cpu_cap_mode}",
+                )
+            job.cpu_cap_percent = body.cpu_cap_percent
+
+        if body.action == "pause":
+            job.pause_requested = True
+        elif body.action == "resume":
+            job.pause_requested = False
+        elif body.action == "cancel":
+            job.cancel_requested = True
+            job.pause_requested = False
+
+        await session.commit()
+        await session.refresh(job)
+        return ScrapeJobResponse.from_orm(job)
 
 
 @router.delete("/scrape/{job_id}", status_code=204)

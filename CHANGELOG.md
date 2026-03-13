@@ -7,48 +7,141 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-03-06
+## [0.5.12] - 2026-03-13 (`468fd8f`)
 
 ### Added
-- **Per-user chat sessions** — every user now has isolated chat history; sessions are scoped by `user_id` and never visible to other users
-- **ChatGPT-style AI page** — left sidebar lists all of the current user's sessions (newest first with relative timestamps); clicking a session loads its full message history
-- **New Chat button** — starts a fresh conversation without losing any previous sessions
-- **Session rename** — inline rename of any session directly from the sidebar
-- **Session delete** — trashcan button per session in the sidebar with confirmation prompt
-- **Multi-turn context** — Ollama receives the full prior message history on every request so the LLM can refer back to earlier messages in a conversation
-- **Session auto-title** — the first 60 characters of the opening message become the session title automatically
-- **Persistent messages** — every user and assistant message is stored in PostgreSQL (`chat_messages` table) and reloaded when the session is reopened
-- **Suggested prompts** — empty chat state shows four clickable example questions to get started
-- **Knowledge source storage size** — the Stored Sources table in the Knowledge Base page now shows a **Size** column (formatted as B / KB / MB)
-- `size_bytes` column added to `knowledge_documents` table via Alembic migration `e7a3c2f9b104`
-- Scraper now records the UTF-8 byte size of extracted text for every ingested page
+- Assets API router and schemas for live Scripts and Packages listing
+- Migrator router/schema support for Jamf-to-Jamf object migration (including scripts)
+- New frontend `Scripts`, `Packages`, and `Migrator` pages
 
 ### Changed
-- `POST /ai/chat` now accepts an optional `session_id`; if omitted a new session is created automatically and its ID is returned in the response
-- `GET /ai/sessions` — new endpoint: list current user's sessions ordered by `updated_at DESC`
-- `POST /ai/sessions` — new endpoint: create an empty named session
-- `DELETE /ai/sessions/{id}` — new endpoint: delete a session and all its messages (ownership enforced)
-- `GET /ai/sessions/{id}/messages` — new endpoint: fetch all messages in a session oldest-first (ownership enforced)
-- `SourceResponse` schema extended with `size_bytes` field
-- Knowledge Base frontend interface updated (`KnowledgeSource` type, `formatBytes` helper, extra table column)
+- Sidebar navigation now includes `Scripts`, `Packages`, and `Migrator`
 
-### Fixed
-- Scraper: **Zoomin Software SPA support** — pages rendering <300 chars of visible text now fall back to the Zoomin backend API (`https://learn-be.jamf.com/api/bundle/{bundle}/page/{topic}.html`) which returns the full article HTML as JSON
-- Scraper: **sitemap seeding** — `_seed_from_sitemap()` parses `/sitemap.xml` (including sitemap index files) to pre-populate the crawl queue; multi-language sites are filtered to `/en-US/` URLs
-- Scraper: **login/redirect detection** — pages redirected to a different domain or whose path matches `/login|auth|signin|register|logout|sso` are skipped automatically
-- Scraper: **text extraction** — `_extract_text()` now prefers the `<main>` or `<article>` tag and strips `<nav>`, `<footer>`, and `<aside>` elements before returning plain text
-
-## [0.4.0] - 2026-03-05
+## [0.5.11] - 2026-03-13 (`4d633c1`)
 
 ### Added
-- Initial project scaffold: barebone FastAPI backend and Next.js 16 frontend
-- `TODO.md` with full feature roadmap across 9 categories
-- `README.md` with architecture overview and quick-start guide
-- `docker-compose.yml` with postgres, redis, chromadb, ollama, backend, and frontend services
-- `.env.example` with all configuration variables
-- `pyproject.toml` with ruff and mypy configuration
-- Backend `app/` package layout with config, database, cache, models, schemas, routers, and services
-- SQLAlchemy ORM models: `JamfServer`, `Device`, `User`, `Policy`, `SmartGroup`, `PatchTitle`, `ComplianceResult`, `SecurityStatus`, `ChatSession`, `ChatMessage`, `KnowledgeDocument`, `PendingAction`, `AiToolAuditLog`
-- Alembic migration setup
-- JWT authentication with access + refresh token flow
-- Pydantic v2 schemas for all models
+- Global Jamf server selector in the app shell
+
+### Changed
+- Dashboard and list queries now include optional `server_id` filtering
+
+## [0.5.10] - 2026-03-09 (`af7ec1a`)
+
+### Added
+- Background sync scheduler (APScheduler) for periodic server sync
+- Dashboard OS version distribution and patch summary visualizations
+
+## [0.5.9] - 2026-03-09 (`57d0b4e`)
+
+### Changed
+- Updated `TODO.md` to mark completed roadmap items
+
+## [0.5.8] - 2026-03-09 (`ae1eb7c`)
+
+### Fixed
+- Corrected patch and smart-group Jamf URL formats for reliable deep-link navigation
+
+## [0.5.7] - 2026-03-09 (`673578b`)
+
+### Added
+- Server URL links in device, patch, policy, and smart-group detail views
+
+## [0.5.6] - 2026-03-09 (`2171017`)
+
+### Added
+- Reusable detail drawer component and entity detail pages for Devices, Patches, Policies, and Smart Groups
+
+## [0.5.5] - 2026-03-09 (`8d30f3b`)
+
+### Added
+- Database migration for `smart_groups` and `patch_titles` tables
+
+## [0.5.4] - 2026-03-09 (`beaa576`)
+
+### Added
+- Database migration for `policies` table
+
+## [0.5.3] - 2026-03-09 (`aac1c74`)
+
+### Added
+- Manual per-server sync and bulk sync-all API endpoints
+
+## [0.5.2] - 2026-03-06 (`4e73fc2`)
+
+### Changed
+- Server provisioning flow now supports credential/role preset selection
+
+## [0.5.1] - 2026-03-06 (`2b68827`)
+
+### Added
+- Jamf Pro auto-provisioning wizard with role/client creation and credential persistence
+
+## [0.5.0] - 2026-03-06 (`5ee64ea`)
+
+### Changed
+- Documentation updated for 0.5.0 features (per-user chat sessions and knowledge source size tracking)
+
+## [0.4.13] - 2026-03-06 (`49f19e8`)
+
+### Changed
+- Standardized string quotes and general code formatting across multiple files
+
+## [0.4.12] - 2026-03-06 (`9e480ad`)
+
+### Changed
+- Refactored import statements and type hints across multiple files
+
+## [0.4.11] - 2026-03-06 (`2759ce2`)
+
+### Changed
+- CI configuration updated for backend and frontend test runs
+
+## [0.4.10] - 2026-03-06 (`a500434`)
+
+### Changed
+- Changelog content refreshed to cover 0.5.0 features, changes, and fixes
+
+## [0.4.9] - 2026-03-06 (`33471f2`)
+
+### Added
+- `size_bytes` support for knowledge documents and related frontend/backend updates
+
+## [0.4.8] - 2026-03-06 (`424982b`)
+
+### Added
+- AI chat improvements: session management, persistent messages, and UI enhancements
+
+## [0.4.7] - 2026-03-06 (`c10de22`)
+
+### Added
+- Async web scraper service with sitemap support, Zoomin API integration, and LLM topic filtering
+
+## [0.4.6] - 2026-03-06 (`0845a1e`)
+
+### Added
+- Smart Groups management page with search and pagination
+
+## [0.4.5] - 2026-03-05 (`d36fc15`)
+
+### Added
+- Initial `Documentation.md`
+
+## [0.4.4] - 2026-03-05 (`f8a9e72`)
+
+### Added
+- Initial backend and frontend project structure with core files
+
+## [0.4.3] - 2026-03-03 (`7c2ea88`)
+
+### Added
+- Project `.gitignore` and initial `TODO.md`
+
+## [0.4.2] - 2026-03-02 (`2747370`)
+
+### Added
+- Frontend file set finalized in repository
+
+## [0.4.1] - 2026-03-02 (`84b6b4e`)
+
+### Added
+- Initial repository commit

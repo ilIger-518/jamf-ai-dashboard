@@ -15,6 +15,7 @@ Features:
 
 import asyncio
 import logging
+import os
 import re
 import uuid
 from collections import deque
@@ -31,6 +32,10 @@ from app.models.scrape_job import ScrapeJob
 from app.services.vector_store import ingest_document
 
 logger = logging.getLogger(__name__)
+
+_MAX_SUB_SITEMAPS = 40
+_MAX_SEED_URLS = 3000
+_SITEMAP_SEED_TIMEOUT_SECONDS = 45
 
 # Matches Zoomin Software documentation page URLs:
 # /[locale]/bundle/{bundleId}/page/{topicFile}.html
@@ -110,7 +115,7 @@ async def _seed_from_sitemap(http: httpx.AsyncClient, start_url: str) -> list[st
         # Sitemap index: <sitemapindex><sitemap><loc>…</loc></sitemap>…</sitemapindex>
         sub_locs = [loc.text.strip() for loc in soup.select("sitemapindex > sitemap > loc")]
         if sub_locs:
-            for sub_url in sub_locs:
+            for sub_url in sub_locs[:_MAX_SUB_SITEMAPS]:
                 try:
                     sub_resp = await http.get(sub_url, timeout=20)
                     if sub_resp.status_code != 200:
@@ -120,14 +125,20 @@ async def _seed_from_sitemap(http: httpx.AsyncClient, start_url: str) -> list[st
                         candidate = _normalize(loc.text.strip())
                         if _same_domain(start_url, candidate):
                             urls.append(candidate)
+                            if len(urls) >= _MAX_SEED_URLS:
+                                break
                 except Exception as exc:
                     logger.debug("Failed to fetch sub-sitemap %s: %s", sub_url, exc)
+                if len(urls) >= _MAX_SEED_URLS:
+                    break
         else:
             # Direct urlset sitemap
             for loc in soup.select("urlset > url > loc"):
                 candidate = _normalize(loc.text.strip())
                 if _same_domain(start_url, candidate):
                     urls.append(candidate)
+                    if len(urls) >= _MAX_SEED_URLS:
+                        break
 
         logger.info("Sitemap seeding: found %d URLs for %s", len(urls), start_url)
     except Exception as exc:
@@ -278,7 +289,15 @@ async def run_scrape_job(job_id: str) -> None:
         # ----------------------------------------------------------------
         # Seed the queue: try sitemap first, fall back to start URL
         # ----------------------------------------------------------------
-        sitemap_urls = await _seed_from_sitemap(http, start_url)
+        try:
+            sitemap_urls = await asyncio.wait_for(
+                _seed_from_sitemap(http, start_url),
+                timeout=_SITEMAP_SEED_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning("Sitemap seeding timed out for %s; falling back to start URL", start_url)
+            sitemap_urls = []
+
         if sitemap_urls:
             # For multi-language sites prefer English pages where locale is visible
             en_urls = [u for u in sitemap_urls if "/en-US/" in u or "/en/" in u]
@@ -288,9 +307,49 @@ async def run_scrape_job(job_id: str) -> None:
         else:
             queue.append(start_url)
 
+        # Persist early signal so UI doesn't look idle at 0/0 while crawling starts.
+        async with AsyncSessionLocal() as session:
+            job_row = await session.get(ScrapeJob, uuid.UUID(job_id))
+            if job_row:
+                job_row.pages_found = len(queue)
+                await session.commit()
+
         start_netloc = urlparse(start_url).netloc
 
         while queue and (max_pages is None or pages_scraped < max_pages):
+            loop_started = datetime.now(UTC)
+
+            # Runtime controls: pause/cancel/cpu cap can be changed from UI while running.
+            async with AsyncSessionLocal() as session:
+                ctrl = await session.get(ScrapeJob, uuid.UUID(job_id))
+                if ctrl and ctrl.cancel_requested:
+                    ctrl.status = "failed"
+                    ctrl.error = "Cancelled by user"
+                    ctrl.finished_at = datetime.now(UTC)
+                    ctrl.pages_scraped = pages_scraped
+                    ctrl.pages_found = len(visited)
+                    ctrl.bytes_scraped = bytes_scraped
+                    await session.commit()
+                    logger.info("Scrape job %s cancelled", job_id)
+                    return
+
+                while ctrl and ctrl.pause_requested:
+                    await asyncio.sleep(1.0)
+                    await session.refresh(ctrl)
+                    if ctrl.cancel_requested:
+                        ctrl.status = "failed"
+                        ctrl.error = "Cancelled by user"
+                        ctrl.finished_at = datetime.now(UTC)
+                        ctrl.pages_scraped = pages_scraped
+                        ctrl.pages_found = len(visited)
+                        ctrl.bytes_scraped = bytes_scraped
+                        await session.commit()
+                        logger.info("Scrape job %s cancelled while paused", job_id)
+                        return
+
+                cpu_cap_mode = ctrl.cpu_cap_mode if ctrl else "total"
+                cpu_cap_percent = ctrl.cpu_cap_percent if ctrl else 100
+
             # Stop if size limit reached
             if max_size_bytes and bytes_scraped >= max_size_bytes:
                 logger.info("Size limit reached (%.1f MB), stopping.", bytes_scraped / 1048576)
@@ -415,6 +474,17 @@ async def run_scrape_job(job_id: str) -> None:
                 logger.warning("Failed to scrape %s: %s", url, exc)
                 errors.append(f"{url}: {exc}")
                 continue
+
+            # Cooperative CPU throttling (app-level): add sleep based on selected cap.
+            cores = max(1, (os.cpu_count() or 1))
+            max_cap = 100 if cpu_cap_mode == "total" else cores * 100
+            cap = max(1, min(cpu_cap_percent, max_cap))
+            ratio = cap / max_cap
+            if ratio < 1.0:
+                work_seconds = max(0.02, (datetime.now(UTC) - loop_started).total_seconds())
+                sleep_seconds = min(2.0, work_seconds * ((1.0 - ratio) / max(ratio, 0.05)))
+                if sleep_seconds > 0:
+                    await asyncio.sleep(sleep_seconds)
 
     # Finalise job
     async with AsyncSessionLocal() as session:

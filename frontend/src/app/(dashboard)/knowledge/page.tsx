@@ -13,6 +13,10 @@ import {
   Clock,
   Loader2,
   X,
+  Settings2,
+  Pause,
+  Play,
+  StopCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -29,9 +33,19 @@ interface ScrapeJob {
   pages_found: number;
   bytes_scraped: number;
   error: string | null;
+  pause_requested: boolean;
+  cancel_requested: boolean;
+  cpu_cap_mode: "total" | "core";
+  cpu_cap_percent: number;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
+}
+
+interface ScrapeSystemInfo {
+  cpu_cores: number;
+  max_total_percent: number;
+  max_core_percent: number;
 }
 
 interface KnowledgeSource {
@@ -91,7 +105,12 @@ function NewScrapeModal({ onClose }: { onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ["scrape-jobs"] });
       onClose();
     },
-    onError: () => toast.error("Failed to start scrape job"),
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to start scrape job";
+      toast.error(msg);
+    },
   });
 
   return (
@@ -219,9 +238,175 @@ function NewScrapeModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function JobSettingsModal({
+  job,
+  system,
+  onClose,
+  onSaved,
+}: {
+  job: ScrapeJob;
+  system: ScrapeSystemInfo;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [mode, setMode] = useState<"total" | "core">(job.cpu_cap_mode || "total");
+  const [cap, setCap] = useState<number>(job.cpu_cap_percent || 100);
+  const [pendingAction, setPendingAction] = useState(false);
+
+  const maxCap = mode === "total" ? system.max_total_percent : system.max_core_percent;
+
+  useEffect(() => {
+    if (cap > maxCap) setCap(maxCap);
+  }, [maxCap, cap]);
+
+  const submit = async (action: "pause" | "resume" | "cancel") => {
+    try {
+      setPendingAction(true);
+      await api.patch(`/knowledge/scrape/${job.id}`, {
+        action,
+        cpu_cap_mode: mode,
+        cpu_cap_percent: cap,
+      });
+      toast.success(
+        action === "pause" ? "Job paused" : action === "resume" ? "Job resumed" : "Job cancelled",
+      );
+      onSaved();
+      if (action === "cancel") onClose();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to update job";
+      toast.error(msg);
+    } finally {
+      setPendingAction(false);
+    }
+  };
+
+  const saveCap = async () => {
+    try {
+      setPendingAction(true);
+      await api.patch(`/knowledge/scrape/${job.id}`, {
+        action: job.pause_requested ? "pause" : "resume",
+        cpu_cap_mode: mode,
+        cpu_cap_percent: cap,
+      });
+      toast.success("CPU cap updated");
+      onSaved();
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to update CPU cap";
+      toast.error(msg);
+    } finally {
+      setPendingAction(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-white">Job Settings</h2>
+          <button onClick={onClose} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X className="h-4 w-4 text-gray-400" />
+          </button>
+        </div>
+
+        <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">{job.domain}</p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">CPU Mode</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setMode("total")}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-sm",
+                  mode === "total"
+                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/30 dark:text-blue-300"
+                    : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300",
+                )}
+              >
+                Total CPU (1-100%)
+              </button>
+              <button
+                onClick={() => setMode("core")}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-sm",
+                  mode === "core"
+                    ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/30 dark:text-blue-300"
+                    : "border-gray-300 text-gray-600 dark:border-gray-600 dark:text-gray-300",
+                )}
+              >
+                Linux style (1-{system.max_core_percent}%)
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
+              CPU Cap: {cap}%
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={maxCap}
+              value={cap}
+              onChange={(e) => setCap(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="mt-1 flex justify-between text-[11px] text-gray-400">
+              <span>1%</span>
+              <span>{maxCap}%</span>
+            </div>
+            <button
+              onClick={saveCap}
+              disabled={pendingAction}
+              className="mt-2 rounded-md border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              Save CPU Cap
+            </button>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            {job.pause_requested ? (
+              <button
+                onClick={() => submit("resume")}
+                disabled={pendingAction}
+                className="inline-flex items-center justify-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Play className="h-3.5 w-3.5" /> Resume
+              </button>
+            ) : (
+              <button
+                onClick={() => submit("pause")}
+                disabled={pendingAction}
+                className="inline-flex items-center justify-center gap-1 rounded-lg bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                <Pause className="h-3.5 w-3.5" /> Pause
+              </button>
+            )}
+
+            <div />
+
+            <button
+              onClick={() => submit("cancel")}
+              disabled={pendingAction}
+              className="inline-flex items-center justify-center gap-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              <StopCircle className="h-3.5 w-3.5" /> Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function KnowledgePage() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [settingsJob, setSettingsJob] = useState<ScrapeJob | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<ScrapeJob[]>({
@@ -232,6 +417,11 @@ export default function KnowledgePage() {
   const { data: sources = [], isLoading: sourcesLoading } = useQuery<KnowledgeSource[]>({
     queryKey: ["knowledge-sources"],
     queryFn: () => api.get<KnowledgeSource[]>("/knowledge/sources").then((r) => r.data),
+  });
+
+  const { data: systemInfo } = useQuery<ScrapeSystemInfo>({
+    queryKey: ["scrape-system-info"],
+    queryFn: () => api.get<ScrapeSystemInfo>("/knowledge/scrape/system").then((r) => r.data),
   });
 
   const deleteJob = useMutation({
@@ -285,6 +475,17 @@ export default function KnowledgePage() {
       </div>
 
       {showModal && <NewScrapeModal onClose={() => setShowModal(false)} />}
+      {settingsJob && systemInfo && (
+        <JobSettingsModal
+          job={settingsJob}
+          system={systemInfo}
+          onClose={() => setSettingsJob(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["scrape-jobs"] });
+            qc.invalidateQueries({ queryKey: ["knowledge-sources"] });
+          }}
+        />
+      )}
 
       {/* Scrape Jobs */}
       <section>
@@ -354,6 +555,15 @@ export default function KnowledgePage() {
                       {job.finished_at ? new Date(job.finished_at).toLocaleString() : "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
+                      {(job.status === "pending" || job.status === "running") && (
+                        <button
+                          onClick={() => setSettingsJob(job)}
+                          className="mr-2 inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          <Settings2 className="h-3.5 w-3.5" />
+                          Settings
+                        </button>
+                      )}
                       {job.status !== "pending" && job.status !== "running" && (
                         <button
                           onClick={() => {
