@@ -4,8 +4,11 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.authz import ALL_PERMISSIONS
 from app.cache import get_redis
@@ -22,29 +25,40 @@ async def get_current_user(
 ) -> User:
     """Validate the JWT Bearer token and return the authenticated user."""
     redis = await get_redis()
-    user = await AuthService.get_user_from_token(token=credentials.credentials, db=db, redis=redis)
+    token_payload = AuthService._decode_token(credentials.credentials)
+    if not token_payload or token_payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        user_id = uuid.UUID(token_payload["sub"])
+    except (ValueError, KeyError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    result = await db.execute(
+        select(User).options(selectinload(User.role)).where(User.id == user_id)
+    )
+    user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user account",
         )
-    result = await db.execute(select(User).where(User.id == user.id))
-    hydrated_user = result.scalar_one_or_none()
-    if hydrated_user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if hydrated_user.role_id and hydrated_user.role is None:
-        await db.refresh(hydrated_user, attribute_names=["role"])
-    return hydrated_user
+    return user
 
 
 def get_user_permissions(current_user: User) -> set[str]:

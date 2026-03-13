@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     embedding_model_name: str = "nomic-embed-text"
     llm_temperature: float = 0.2
     llm_context_window: int = 4096
+    llm_timeout_seconds: int = 180
 
     # ── Sync ────────────────────────────────────────────────────
     sync_interval_minutes: int = 15

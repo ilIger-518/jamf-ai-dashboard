@@ -11,9 +11,13 @@ import {
   MessageSquare,
   Trash2,
   PenLine,
+  ShieldCheck,
+  Wrench,
+  Square,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/authStore";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +28,12 @@ interface Session {
   title: string;
   created_at: string;
   updated_at: string;
+}
+
+interface JamfServer {
+  id: string;
+  name: string;
+  is_active: boolean;
 }
 
 interface Message {
@@ -57,8 +67,14 @@ export default function AiAssistantPage() {
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [botMode, setBotMode] = useState<"rag_readonly" | "policy_builder">("rag_readonly");
+  const [targetServerId, setTargetServerId] = useState<string>("");
+  const [isThinking, setIsThinking] = useState(false);
+  const [thinkingText, setThinkingText] = useState("Idle");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const accessToken = useAuthStore((s) => s.accessToken);
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -76,6 +92,19 @@ export default function AiAssistantPage() {
     queryFn: () => api.get<Session[]>("/ai/sessions").then((r) => r.data),
     refetchInterval: 30_000,
   });
+
+  const { data: servers = [] } = useQuery<JamfServer[]>({
+    queryKey: ["servers"],
+    queryFn: () => api.get<JamfServer[]>("/servers").then((r) => r.data),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    if (!targetServerId && servers.length > 0) {
+      const firstActive = servers.find((s) => s.is_active) ?? servers[0];
+      setTargetServerId(firstActive.id);
+    }
+  }, [servers, targetServerId]);
 
   // ---- Fetch messages for active session ----
   const { data: sessionMessages = [] } = useQuery<Message[]>({
@@ -101,43 +130,117 @@ export default function AiAssistantPage() {
     }
   }, [activeSessionId, sessionMessages]);
 
-  // ---- Send message ----
-  const sendMutation = useMutation({
-    mutationFn: (message: string) =>
-      api
-        .post<{ session_id: string; reply: string; sources: string[] }>("/ai/chat", {
-          message,
-          session_id: activeSessionId,
-        })
-        .then((r) => r.data),
-    onSuccess: (data) => {
-      // If this was a new session, switch to it
-      if (!activeSessionId || activeSessionId !== data.session_id) {
-        setActiveSessionId(data.session_id);
+  // ---- Send message (streaming) ----
+  const sendStreamMessage = async (message: string, signal: AbortSignal) => {
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    const response = await fetch(`${base}/api/v1/ai/chat/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify({
+        message,
+        session_id: activeSessionId,
+        bot_mode: botMode,
+        target_server_id: botMode === "policy_builder" ? targetServerId || null : null,
+      }),
+      signal,
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error("Could not reach the AI service. Make sure Ollama is running.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalPayload: { session_id: string; reply: string; sources: string[] } | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const event = JSON.parse(trimmed) as {
+          type: "stage" | "final" | "error";
+          message?: string;
+          session_id?: string;
+          reply?: string;
+          sources?: string[];
+        };
+
+        if (event.type === "stage") {
+          setThinkingText(event.message ?? "Thinking...");
+          continue;
+        }
+        if (event.type === "error") {
+          throw new Error(event.message || "Unexpected error calling the AI service.");
+        }
+        if (event.type === "final" && event.session_id && typeof event.reply === "string") {
+          finalPayload = {
+            session_id: event.session_id,
+            reply: event.reply,
+            sources: event.sources ?? [],
+          };
+        }
       }
-      setLocalMessages((m) => [
-        ...m,
-        { role: "assistant", content: data.reply, sources: data.sources },
-      ]);
-      // Refresh sessions list (title & updated_at changed)
-      qc.invalidateQueries({ queryKey: ["ai-sessions"] });
-      qc.invalidateQueries({ queryKey: ["ai-messages", data.session_id] });
-    },
-    onError: (err: unknown) => {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ??
-        "Could not reach the AI service. Make sure Ollama is running.";
-      setLocalMessages((m) => [...m, { role: "assistant", content: detail }]);
-    },
-  });
+    }
+
+    if (!finalPayload) {
+      throw new Error("AI stream ended without a final response.");
+    }
+    return finalPayload;
+  };
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text || sendMutation.isPending) return;
+    if (!text || isThinking) return;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setInput("");
+    setIsThinking(true);
+    setThinkingText("Starting...");
     setLocalMessages((m) => [...m, { role: "user", content: text }]);
-    sendMutation.mutate(text);
+    void sendStreamMessage(text, controller.signal)
+      .then((data) => {
+        if (!activeSessionId || activeSessionId !== data.session_id) {
+          setActiveSessionId(data.session_id);
+        }
+        setLocalMessages((m) => [
+          ...m,
+          { role: "assistant", content: data.reply, sources: data.sources },
+        ]);
+        qc.invalidateQueries({ queryKey: ["ai-sessions"] });
+        qc.invalidateQueries({ queryKey: ["ai-messages", data.session_id] });
+      })
+      .catch((err: unknown) => {
+        const canceled =
+          (err as { name?: string })?.name === "AbortError" ||
+          (err as { code?: string; name?: string })?.code === "ERR_CANCELED";
+        if (!canceled) {
+          const detail = err instanceof Error ? err.message : "Unexpected error calling the AI service.";
+          setLocalMessages((m) => [...m, { role: "assistant", content: detail }]);
+        }
+      })
+      .finally(() => {
+        abortControllerRef.current = null;
+        setIsThinking(false);
+      });
+  };
+
+  const handleStop = () => {
+    if (!isThinking) return;
+    abortControllerRef.current?.abort();
+    setLocalMessages((m) => [...m, { role: "assistant", content: "Stopped." }]);
+    setIsThinking(false);
+    setThinkingText("Stopped");
   };
 
   // ---- New chat ----
@@ -267,13 +370,61 @@ export default function AiAssistantPage() {
       {/* ---------------------------------------------------------------- */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-          <Bot className="mr-2 h-5 w-5 text-blue-600 dark:text-blue-400" />
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-6 py-3 dark:border-gray-700">
+          <Bot className="h-5 w-5 text-blue-600 dark:text-blue-400" />
           <h1 className="text-base font-semibold text-gray-900 dark:text-white">
             {activeSessionId
               ? (sessions.find((s) => s.id === activeSessionId)?.title || "Chat")
               : "AI Assistant"}
           </h1>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                if (botMode !== "rag_readonly") startNewChat();
+                setBotMode("rag_readonly");
+              }}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium",
+                botMode === "rag_readonly"
+                  ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-900/30 dark:text-blue-300"
+                  : "border-gray-300 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+              )}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              RAG Read-Only
+            </button>
+
+            <button
+              onClick={() => {
+                if (botMode !== "policy_builder") startNewChat();
+                setBotMode("policy_builder");
+              }}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium",
+                botMode === "policy_builder"
+                  ? "border-amber-500 bg-amber-50 text-amber-700 dark:border-amber-500 dark:bg-amber-900/30 dark:text-amber-300"
+                  : "border-gray-300 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800",
+              )}
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Policy Builder
+            </button>
+
+            {botMode === "policy_builder" && (
+              <select
+                value={targetServerId}
+                onChange={(e) => setTargetServerId(e.target.value)}
+                className="rounded-lg border border-gray-300 px-2 py-1.5 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              >
+                {servers.map((server) => (
+                  <option key={server.id} value={server.id}>
+                    {server.name}{server.is_active ? "" : " (inactive)"}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
 
         {/* Messages */}
@@ -284,19 +435,27 @@ export default function AiAssistantPage() {
                 <Bot className="h-10 w-10 text-blue-600 dark:text-blue-400" />
               </div>
               <p className="text-base font-medium text-gray-700 dark:text-gray-300">
-                Jamf AI Assistant
+                {botMode === "policy_builder" ? "Jamf Policy Builder" : "Jamf AI Assistant"}
               </p>
               <p className="max-w-sm text-sm text-gray-500 dark:text-gray-400">
-                Ask questions about your devices, policies, patch status, or
-                compliance. Powered by your local Ollama instance.
+                {botMode === "policy_builder"
+                  ? "Ask for policy drafts or request policy creation on the selected Jamf server."
+                  : "Ask questions about your devices, policies, patch status, or compliance. Powered by your local Ollama instance."}
               </p>
               <div className="mt-2 grid grid-cols-2 gap-2 text-left text-xs">
-                {[
-                  "How many unmanaged devices do I have?",
-                  "What policies are enabled?",
-                  "Show me patch compliance status",
-                  "Any smart groups configured?",
-                ].map((q) => (
+                {(botMode === "policy_builder"
+                  ? [
+                      "Create a policy to install Zoom at startup",
+                      "Create a policy to run inventory update daily",
+                      "Draft a policy for FileVault compliance reminder",
+                      "Create a policy to run a custom script at login",
+                    ]
+                  : [
+                      "How many unmanaged devices do I have?",
+                      "What policies are enabled?",
+                      "Show me patch compliance status",
+                      "Any smart groups configured?",
+                    ]).map((q) => (
                   <button
                     key={q}
                     onClick={() => {
@@ -360,7 +519,7 @@ export default function AiAssistantPage() {
                   )}
                 </div>
               ))}
-              {sendMutation.isPending && (
+              {isThinking && (
                 <div className="flex gap-3">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-950">
                     <Bot className="h-4 w-4 text-blue-600 dark:text-blue-400" />
@@ -371,6 +530,7 @@ export default function AiAssistantPage() {
                       <span className="animate-bounce [animation-delay:0.1s]">●</span>
                       <span className="animate-bounce [animation-delay:0.2s]">●</span>
                     </span>
+                    <p className="mt-1 text-[11px] text-gray-400 dark:text-gray-500">{thinkingText}</p>
                   </div>
                 </div>
               )}
@@ -381,22 +541,32 @@ export default function AiAssistantPage() {
 
         {/* Input bar */}
         <div className="border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+          {isThinking && (
+            <div className="mx-auto mb-1 max-w-3xl text-[11px] text-gray-500 dark:text-gray-400">
+              AI thinking: {thinkingText}
+            </div>
+          )}
           <div className="mx-auto flex max-w-3xl gap-2">
             <input
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder="Ask about your Jamf environment…"
-              disabled={sendMutation.isPending}
+              placeholder={
+                botMode === "policy_builder"
+                  ? "Ask Policy Builder to draft or create a Jamf policy…"
+                  : "Ask about your Jamf environment…"
+              }
+              disabled={isThinking}
               className="flex-1 rounded-xl border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
             />
             <button
-              onClick={handleSend}
-              disabled={!input.trim() || sendMutation.isPending}
+              onClick={isThinking ? handleStop : handleSend}
+              disabled={!isThinking && !input.trim()}
               className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              <Send className="h-4 w-4" />
+              {isThinking ? <Square className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+              {isThinking ? "Stop" : "Send"}
             </button>
           </div>
         </div>
