@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Package, RefreshCw, Search, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
+import { useUiStore } from "@/store/uiStore";
 
 interface Patch {
   id: string;
@@ -35,10 +36,13 @@ export default function PatchesPage() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const perPage = 50;
+  const { selectedServerId } = useUiStore();
+
+  useEffect(() => { setPage(1); }, [selectedServerId]);
 
   const { data, isLoading } = useQuery<PagedPatches>({
-    queryKey: ["patches", page, search],
-    queryFn: () => api.get<PagedPatches>("/patches", { params: { page, per_page: perPage, search: search || undefined } }).then((r) => r.data),
+    queryKey: ["patches", page, search, selectedServerId],
+    queryFn: () => api.get<PagedPatches>("/patches", { params: { page, per_page: perPage, search: search || undefined, server_id: selectedServerId || undefined } }).then((r) => r.data),
   });
 
   const { data: detail, isLoading: detailLoading } = useQuery<PatchDetail>({

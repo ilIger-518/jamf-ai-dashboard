@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/uiStore";
+import { ServerSelector } from "@/components/shared/ServerSelector";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -65,6 +66,11 @@ export function Sidebar() {
             <ChevronLeft className="h-4 w-4" />
           )}
         </button>
+      </div>
+
+      {/* Server Selector */}
+      <div className="border-b border-gray-200 dark:border-gray-800 px-2 py-2">
+        <ServerSelector collapsed={sidebarCollapsed} />
       </div>
 
       {/* Navigation */}

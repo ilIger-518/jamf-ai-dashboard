@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Users, RefreshCw, Search, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
+import { useUiStore } from "@/store/uiStore";
 
 interface Criterion {
   name?: string;
@@ -40,10 +41,13 @@ export default function SmartGroupsPage() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const perPage = 50;
+  const { selectedServerId } = useUiStore();
+
+  useEffect(() => { setPage(1); }, [selectedServerId]);
 
   const { data, isLoading } = useQuery<PagedSmartGroups>({
-    queryKey: ["smart-groups", page, search],
-    queryFn: () => api.get<PagedSmartGroups>("/smart-groups", { params: { page, per_page: perPage, search: search || undefined } }).then((r) => r.data),
+    queryKey: ["smart-groups", page, search, selectedServerId],
+    queryFn: () => api.get<PagedSmartGroups>("/smart-groups", { params: { page, per_page: perPage, search: search || undefined, server_id: selectedServerId || undefined } }).then((r) => r.data),
   });
 
   const { data: detail, isLoading: detailLoading } = useQuery<SmartGroupDetail>({

@@ -15,6 +15,7 @@ import { formatDistanceToNow } from "date-fns";
 import { api } from "@/lib/api";
 import { OsVersionChart } from "@/components/dashboard/OsVersionChart";
 import { PatchStatusBar } from "@/components/dashboard/PatchStatusBar";
+import { useUiStore } from "@/store/uiStore";
 
 interface OsVersionCount {
   os_version: string;
@@ -109,11 +110,14 @@ export default function DashboardHomePage() {
   const qc = useQueryClient();
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { selectedServerId } = useUiStore();
 
   const { data, isLoading } = useQuery<Stats>({
-    queryKey: ["dashboard", "stats"],
+    queryKey: ["dashboard", "stats", selectedServerId],
     queryFn: async () => {
-      const r = await api.get<Stats>("/dashboard/stats");
+      const r = await api.get<Stats>("/dashboard/stats", {
+        params: { server_id: selectedServerId || undefined },
+      });
       setLastFetch(new Date());
       return r.data;
     },
@@ -122,7 +126,7 @@ export default function DashboardHomePage() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await qc.refetchQueries({ queryKey: ["dashboard", "stats"] });
+    await qc.refetchQueries({ queryKey: ["dashboard", "stats", selectedServerId] });
     setIsRefreshing(false);
   };
 

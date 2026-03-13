@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Monitor, RefreshCw, Search, ExternalLink } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
+import { useUiStore } from "@/store/uiStore";
 
 interface Device {
   id: string;
@@ -52,12 +53,23 @@ export default function DevicesPage() {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const perPage = 50;
+  const { selectedServerId } = useUiStore();
+
+  // Reset to page 1 when server filter changes
+  useEffect(() => { setPage(1); }, [selectedServerId]);
 
   const { data, isLoading } = useQuery<PagedDevices>({
-    queryKey: ["devices", page, search],
+    queryKey: ["devices", page, search, selectedServerId],
     queryFn: () =>
       api
-        .get<PagedDevices>("/devices", { params: { page, per_page: perPage, search: search || undefined } })
+        .get<PagedDevices>("/devices", {
+          params: {
+            page,
+            per_page: perPage,
+            search: search || undefined,
+            server_id: selectedServerId || undefined,
+          },
+        })
         .then((r) => r.data),
   });
 
