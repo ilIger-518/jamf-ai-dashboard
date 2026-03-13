@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.dependencies import AdminUser
+from app.dependencies import ManageMigratorUser
 from app.models.server import JamfServer
 from app.schemas.migrator import (
     ListMigratorObjectsResponse,
@@ -253,7 +253,7 @@ def _clear_static_group_members(payload: dict) -> None:
 @router.get("/objects", response_model=ListMigratorObjectsResponse)
 async def list_objects(
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: AdminUser,
+    _: ManageMigratorUser,
     source_server_id: uuid.UUID = Query(...),
     entity_type: Literal["policy", "smart_group", "static_group", "script"] = Query(...),
 ) -> ListMigratorObjectsResponse:
@@ -284,7 +284,7 @@ async def list_objects(
 async def migrate_objects(
     body: MigrationRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    _: AdminUser,
+    _: ManageMigratorUser,
 ) -> MigrationResponse:
     source = await _load_server(db, body.source_server_id)
     target = await _load_server(db, body.target_server_id)

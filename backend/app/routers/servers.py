@@ -7,7 +7,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.dependencies import AdminUser, CurrentUser, DBSession
+from app.dependencies import CurrentUser, DBSession, ManageServersUser, ManageServerSyncUser
 from app.models.server import JamfServer
 from app.schemas.servers import (
     FULL_PRIVILEGES,
@@ -133,7 +133,7 @@ async def list_servers(db: DBSession, _: CurrentUser) -> list[ServerResponse]:
 
 
 @router.post("", response_model=ServerResponse, status_code=status.HTTP_201_CREATED)
-async def create_server(body: ServerCreate, db: DBSession, _: AdminUser) -> ServerResponse:
+async def create_server(body: ServerCreate, db: DBSession, _: ManageServersUser) -> ServerResponse:
     server = JamfServer(
         name=body.name,
         url=body.url.rstrip("/"),
@@ -150,7 +150,7 @@ async def create_server(body: ServerCreate, db: DBSession, _: AdminUser) -> Serv
 
 @router.patch("/{server_id}", response_model=ServerResponse)
 async def update_server(
-    server_id: uuid.UUID, body: ServerUpdate, db: DBSession, _: AdminUser
+    server_id: uuid.UUID, body: ServerUpdate, db: DBSession, _: ManageServersUser
 ) -> ServerResponse:
     result = await db.execute(select(JamfServer).where(JamfServer.id == server_id))
     server = result.scalar_one_or_none()
@@ -178,7 +178,7 @@ async def update_server(
 
 
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_server(server_id: uuid.UUID, db: DBSession, _: AdminUser) -> None:
+async def delete_server(server_id: uuid.UUID, db: DBSession, _: ManageServersUser) -> None:
     result = await db.execute(select(JamfServer).where(JamfServer.id == server_id))
     server = result.scalar_one_or_none()
     if server is None:
@@ -187,7 +187,7 @@ async def delete_server(server_id: uuid.UUID, db: DBSession, _: AdminUser) -> No
 
 
 @router.post("/provision", response_model=ProvisionResult, status_code=status.HTTP_201_CREATED)
-async def provision_server(body: ServerProvision, db: DBSession, _: AdminUser) -> ProvisionResult:
+async def provision_server(body: ServerProvision, db: DBSession, _: ManageServersUser) -> ProvisionResult:
     """Auto-provision a Jamf Pro server.
 
     Uses the supplied admin credentials to:
@@ -257,7 +257,7 @@ async def provision_server(body: ServerProvision, db: DBSession, _: AdminUser) -
 # ---------------------------------------------------------------------------
 
 @router.post("/{server_id}/sync", status_code=status.HTTP_202_ACCEPTED)
-async def trigger_sync(server_id: uuid.UUID, db: DBSession, _: AdminUser) -> dict:
+async def trigger_sync(server_id: uuid.UUID, db: DBSession, _: ManageServerSyncUser) -> dict:
     """Kick off a background sync for a specific server."""
     result = await db.execute(select(JamfServer).where(JamfServer.id == server_id))
     if result.scalar_one_or_none() is None:
@@ -268,7 +268,7 @@ async def trigger_sync(server_id: uuid.UUID, db: DBSession, _: AdminUser) -> dic
 
 
 @router.post("/sync-all", status_code=status.HTTP_202_ACCEPTED)
-async def trigger_sync_all(_: AdminUser) -> dict:
+async def trigger_sync_all(_: ManageServerSyncUser) -> dict:
     """Kick off a background sync for all active servers."""
     asyncio.create_task(sync_all_servers())
     return {"status": "started"}

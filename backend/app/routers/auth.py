@@ -4,8 +4,10 @@ from fastapi import APIRouter, Cookie, HTTPException, Response, status
 from sqlalchemy import select
 
 from app.cache import get_redis
+from app.dependencies import get_user_permissions
 from app.config import get_settings
 from app.dependencies import CurrentUser, DBSession
+from app.models.role import Role
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
@@ -23,6 +25,20 @@ COOKIE_HTTPONLY = True
 COOKIE_SAMESITE = "lax"
 
 
+def _user_response(user: User) -> UserResponse:
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        is_admin=user.is_admin,
+        is_active=user.is_active,
+        role_id=user.role_id,
+        role_name=user.role.name if user.role else None,
+        permissions=sorted(get_user_permissions(user)),
+        created_at=user.created_at,
+    )
+
+
 @router.post(
     "/register",
     response_model=UserResponse,
@@ -32,6 +48,11 @@ COOKIE_SAMESITE = "lax"
 async def register(body: RegisterRequest, db: DBSession) -> UserResponse:
     # First-ever user is automatically an admin (bootstrap)
     is_first_user = (await AuthService.get_user_count(db)) == 0
+    if not is_first_user:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Self-registration is disabled after initial setup",
+        )
 
     # Check for duplicate username / email
     existing = await db.execute(
@@ -49,10 +70,16 @@ async def register(body: RegisterRequest, db: DBSession) -> UserResponse:
         hashed_password=AuthService.hash_password(body.password),
         is_admin=is_first_user or body.is_admin,
     )
+    if is_first_user:
+        admin_role = (
+            await db.execute(select(Role).where(Role.name == "Administrator"))
+        ).scalar_one_or_none()
+        if admin_role:
+            user.role_id = admin_role.id
     db.add(user)
     await db.flush()
     await db.refresh(user)
-    return UserResponse.model_validate(user)
+    return _user_response(user)
 
 
 @router.post("/login", response_model=TokenResponse, summary="Obtain access + refresh tokens")
@@ -136,4 +163,4 @@ async def logout(current_user: CurrentUser, response: Response) -> None:
 
 @router.get("/me", response_model=UserResponse, summary="Return the authenticated user's profile")
 async def me(current_user: CurrentUser) -> UserResponse:
-    return UserResponse.model_validate(current_user)
+    return _user_response(current_user)

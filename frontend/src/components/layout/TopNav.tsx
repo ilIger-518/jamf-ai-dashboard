@@ -49,9 +49,9 @@ export function TopNav() {
           <span className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
             <User className="h-4 w-4" />
             {user.username}
-            {user.is_admin && (
+            {user.role_name && (
               <span className="ml-1 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-950 dark:text-green-300">
-                admin
+                {user.role_name}
               </span>
             )}
           </span>

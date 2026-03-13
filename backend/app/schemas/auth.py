@@ -39,6 +39,9 @@ class UserResponse(BaseModel):
     email: str
     is_admin: bool
     is_active: bool
+    role_id: uuid.UUID | None = None
+    role_name: str | None = None
+    permissions: list[str] = []
     created_at: datetime
 
     model_config = {"from_attributes": True}

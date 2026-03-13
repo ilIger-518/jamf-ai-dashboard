@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 
 from app.database import AsyncSessionLocal
-from app.dependencies import AdminUser, CurrentUser
+from app.dependencies import CurrentUser, ManageKnowledgeUser
 from app.models.knowledge import KnowledgeDocument
 from app.models.scrape_job import ScrapeJob
 from app.models.scrape_job_log import ScrapeJobLog
@@ -144,7 +144,7 @@ class ScrapeRuntimeResponse(BaseModel):
 async def start_scrape(
     body: ScrapeRequest,
     background_tasks: BackgroundTasks,
-    _: AdminUser,
+    _: ManageKnowledgeUser,
 ) -> ScrapeJobResponse:
     """Start a background scrape job for a domain. Admin only."""
     # Basic URL normalisation — ensure it starts with http
@@ -288,7 +288,7 @@ async def get_scrape_job_runtime(job_id: str, _: CurrentUser) -> ScrapeRuntimeRe
 
 
 @router.patch("/scrape/{job_id}", response_model=ScrapeJobResponse)
-async def control_scrape_job(job_id: str, body: ScrapeControlRequest, _: AdminUser) -> ScrapeJobResponse:
+async def control_scrape_job(job_id: str, body: ScrapeControlRequest, _: ManageKnowledgeUser) -> ScrapeJobResponse:
     """Control a scrape job: pause/resume/cancel and update CPU cap settings."""
     if body.action not in {"pause", "resume", "cancel"}:
         raise HTTPException(status_code=400, detail="Invalid action")
@@ -329,7 +329,7 @@ async def control_scrape_job(job_id: str, body: ScrapeControlRequest, _: AdminUs
 
 
 @router.delete("/scrape/{job_id}", status_code=204)
-async def delete_scrape_job(job_id: str, _: AdminUser) -> None:
+async def delete_scrape_job(job_id: str, _: ManageKnowledgeUser) -> None:
     """Delete a scrape job record. Cannot delete running jobs. Admin only."""
     async with AsyncSessionLocal() as session:
         job = await session.get(ScrapeJob, uuid.UUID(job_id))
@@ -354,7 +354,7 @@ async def list_sources(_: CurrentUser) -> list[SourceResponse]:
 
 
 @router.delete("/sources/{source_id}", status_code=204)
-async def delete_source(source_id: str, _: AdminUser) -> None:
+async def delete_source(source_id: str, _: ManageKnowledgeUser) -> None:
     """Delete a knowledge source and all its chunks from ChromaDB. Admin only."""
     async with AsyncSessionLocal() as session:
         doc = await session.get(KnowledgeDocument, uuid.UUID(source_id))

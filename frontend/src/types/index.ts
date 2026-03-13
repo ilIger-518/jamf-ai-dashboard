@@ -16,6 +16,9 @@ export interface UserResponse {
   email: string;
   is_admin: boolean;
   is_active: boolean;
+  role_id: string | null;
+  role_name: string | null;
+  permissions: string[];
   created_at: string;
 }
 
