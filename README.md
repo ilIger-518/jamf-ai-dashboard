@@ -1,131 +1,81 @@
 # Jamf AI Dashboard
 
-A self-hosted web dashboard for monitoring and managing devices across one or more **Jamf Pro** servers, with an integrated **AI assistant** powered by a local LLM and a custom RAG knowledge base.
+Self-hosted Jamf Pro operations dashboard with a local AI assistant, multi-server support, migration workflows, and a knowledge scraping pipeline.
 
-## Features
+## Highlights
 
-- **Unified device view** — monitor all your Mac fleet across multiple Jamf Pro servers from one screen
-- **Security & compliance** — per-device FileVault, SIP, Gatekeeper, Firewall status and CIS/NIST compliance checks
-- **Policies & Smart Groups** — browse, inspect, and search all policies and group membership
-- **Patch management** — track patched vs. unpatched counts per software title
-- **AI assistant** — ask questions about your fleet, get Jamf policy/script generation help, analyze scripts, and query the knowledge base — all powered by a local LLM (no data leaves your network)
-- **Per-user chat sessions** — ChatGPT-style sidebar with named sessions; create, rename, delete, and resume conversations across page reloads
-- **Read-only AI enforcement** — the AI can only read data; any write action requires explicit user approval with a full command preview
-- **RAG knowledge base** — scrape Jamf documentation and custom runbooks; built-in BFS scraper with sitemap seeding and Zoomin SPA support
-- **Knowledge source storage tracking** — each scraped document stores its size in bytes, shown as a human-readable value in the Knowledge Base UI
+- Unified data pages for `Devices`, `Policies`, `Smart Groups`, and `Patches`
+- Detail drawers with direct deep-links to Jamf Pro records
+- Global Jamf server selector (`All Servers` or one specific server)
+- Dashboard KPI cards and charts (including OS distribution and patch status)
+- Automatic background sync for active servers
+- Knowledge Base scraping + source management
+- Scrape job runtime controls: pause/resume/cancel + CPU cap
+- Migrator for cross-server Jamf object migration (`Policies`, `Smart Groups`, `Static Groups`, `Scripts`)
+- Assets pages for live Jamf `Scripts` and `Packages` catalogs
 
-## Architecture
+## Tech Stack
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                        Browser                               │
-│              Next.js 16 + React 19 + Tailwind 4              │
-└────────────────────────┬─────────────────────────────────────┘
-                         │ HTTP / SSE
-┌────────────────────────▼─────────────────────────────────────┐
-│              FastAPI backend (Python 3.12)                   │
-│  Auth · Devices · Policies · Patches · Compliance · AI Chat  │
-│           APScheduler sync · Redis cache                     │
-└──────┬─────────────┬──────────────┬──────────────────────────┘
-       │             │              │
-  PostgreSQL      Redis        ChromaDB
-  (ORM data)   (cache/tokens) (vector store)
-                              │
-                           Ollama
-                       (local LLM / embeddings)
-       │
-  Jamf Pro API(s)
-  (one or many servers)
-```
+- Backend: FastAPI, SQLAlchemy (async), Alembic, PostgreSQL, Redis, APScheduler
+- Frontend: Next.js App Router, React, TanStack Query, Tailwind CSS
+- AI/RAG: Ollama + ChromaDB
+- Runtime: Docker Compose
 
-## Prerequisites
+## Local URLs
 
-| Tool | Version |
-|------|---------|
-| Docker + Docker Compose | ≥ 24 |
-| Ollama | ≥ 0.3 (if running outside Docker) |
-| Python | 3.12 (for local dev without Docker) |
-| Node.js | 20 LTS (for local frontend dev) |
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8000`
+- Swagger docs: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
 
 ## Quick Start
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/your-org/jamf-ai-dashboard.git
+# 1) Clone
+cd /path/to/workspace
+git clone <your-repo-url> jamf-ai-dashboard
 cd jamf-ai-dashboard
 
-# 2. Copy and fill in environment variables
+# 2) Configure env
 cp .env.example .env
-# edit .env with your Jamf Pro credentials, secret key, etc.
+# edit .env values
 
-# 3. Start all services
+# 3) Start services
 docker compose up -d
-
-# 4. The dashboard is now running at http://localhost:3000
-#    The API is at http://localhost:8000/docs
 ```
 
-On first run you will be prompted to create an admin account.
+Then open `http://localhost:3000`.
 
-## Configuration
-
-All configuration is via environment variables. See [`.env.example`](.env.example) for the full reference with descriptions and defaults.
-
-Key variables:
-
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection string |
-| `SECRET_KEY` | Random secret for JWT signing (generate with `openssl rand -hex 32`) |
-| `JAMF_SERVER_1_URL` | Base URL of your first Jamf Pro server |
-| `JAMF_SERVER_1_CLIENT_ID` | Jamf Pro API client ID |
-| `JAMF_SERVER_1_CLIENT_SECRET` | Jamf Pro API client secret |
-| `OLLAMA_BASE_URL` | Ollama API base URL (default: `http://ollama:11434`) |
-| `OLLAMA_MODEL` | Chat model to use (e.g. `llama3.2:3b`, `mistral:7b`) |
-
-## Local Development (without Docker)
-
-### Backend
+## Common Commands
 
 ```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt -r requirements-dev.txt
-# Set DATABASE_URL and REDIS_URL in .env
-alembic upgrade head
-uvicorn app.main:app --reload
+# Rebuild and redeploy changed app services
+docker compose build backend frontend
+docker compose up -d backend frontend
+
+# Follow backend logs
+docker compose logs -f backend
+
+# Apply migrations manually
+docker compose exec -T backend alembic upgrade head
 ```
 
-### Frontend
+## Scrape Job Control Modes
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+Running scrape jobs can be controlled from the Knowledge Base UI:
 
-## Running Tests
+- `Pause`
+- `Resume`
+- `Cancel`
+- CPU cap slider modes:
+  - `Total CPU`: `1-100%`
+  - `Linux style`: `1-(cores*100)%` (for example 6 cores => `1-600%`)
 
-```bash
-# Backend
-cd backend && pytest --cov=app --cov-report=term-missing
+Note: CPU cap is cooperative application-level throttling in the scraper loop.
 
-# Frontend unit tests (Vitest)
-cd frontend && npm test
+## Documentation Index
 
-# Frontend E2E (Playwright)
-cd frontend && npx playwright test
-```
-
-Backend test configuration is in `backend/pyproject.toml`. Frontend Vitest configuration is in `frontend/vitest.config.ts`.
-
-## Contributing
-
-1. Fork the repo and create a feature branch from `develop`
-2. Follow the PR checklist in [CONTRIBUTING.md](docs/CONTRIBUTING.md)
-3. All CI checks must pass before merging
-
-## License
-
-MIT
+- Technical documentation: `Documentation.md`
+- Release history: `CHANGELOG.md`
+- Project roadmap and tasks: `TODO.md`
+- Frontend-specific notes: `frontend/README.md`

@@ -609,6 +609,7 @@
 - [ ] Add URL to ingest from web
 - [ ] Delete document (removes from vector store)
 - [ ] Display ingestion logs and errors
+- [ ] Add scrape job control status badges in the jobs table (running/paused/cancelled + active CPU cap like `total 35%` or `core 220%`)
 
 ---
 

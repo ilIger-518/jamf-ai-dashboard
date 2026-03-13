@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Scrape job runtime controls in Knowledge Base: pause, resume, cancel, and CPU cap modes (`total` and Linux-style `core` percent)
+
+### Changed
+- Refreshed project documentation across `README.md`, `Documentation.md`, and `frontend/README.md` to match current architecture and feature set
+
 ## [0.5.12] - 2026-03-13 (`468fd8f`)
 
 ### Added
