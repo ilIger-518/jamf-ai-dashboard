@@ -15,11 +15,13 @@ from app.config import get_settings
 from app.database import engine
 from app.routers import (
     ai,
+    assets,
     auth,
     dashboard,
     devices,
     health,
     knowledge,
+    migrator,
     patches,
     policies,
     servers,
@@ -113,7 +115,9 @@ def create_app() -> FastAPI:
     application.include_router(patches.router, prefix=API_PREFIX)
     application.include_router(smart_groups.router, prefix=API_PREFIX)
     application.include_router(dashboard.router, prefix=API_PREFIX)
+    application.include_router(assets.router, prefix=API_PREFIX)
     application.include_router(knowledge.router, prefix=API_PREFIX)
+    application.include_router(migrator.router, prefix=API_PREFIX)
     application.include_router(ai.router, prefix=API_PREFIX)
 
     return application

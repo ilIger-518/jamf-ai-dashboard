@@ -11,7 +11,10 @@ import {
   ClipboardCheck,
   Bot,
   BookOpen,
+  FileCode2,
+  Box,
   Settings,
+  ArrowRightLeft,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -28,6 +31,9 @@ const NAV_ITEMS = [
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
   { href: "/ai", label: "AI Assistant", icon: Bot },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
+  { href: "/scripts", label: "Scripts", icon: FileCode2 },
+  { href: "/packages", label: "Packages", icon: Box },
+  { href: "/migrator", label: "Migrator", icon: ArrowRightLeft },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
