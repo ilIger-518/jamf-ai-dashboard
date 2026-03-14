@@ -10,6 +10,7 @@ from app.dependencies import CurrentUser, DBSession
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     LoginRequest,
     RegisterRequest,
     TokenResponse,
@@ -164,3 +165,24 @@ async def logout(current_user: CurrentUser, response: Response) -> None:
 @router.get("/me", response_model=UserResponse, summary="Return the authenticated user's profile")
 async def me(current_user: CurrentUser) -> UserResponse:
     return _user_response(current_user)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT, summary="Change current user's password")
+async def change_password(body: ChangePasswordRequest, current_user: CurrentUser, db: DBSession) -> None:
+    if not AuthService.verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    if body.current_password == body.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password",
+        )
+
+    current_user.hashed_password = AuthService.hash_password(body.new_password)
+    await db.commit()
+
+    # Force refresh-token re-auth after password rotation.
+    redis = await get_redis()
+    await AuthService.invalidate_refresh_token(current_user.id, redis)

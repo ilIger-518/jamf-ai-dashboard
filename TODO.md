@@ -2,7 +2,7 @@
 
 > Self-hosted web dashboard for monitoring and managing devices across one or more Jamf Pro servers, with an integrated AI assistant powered by a local LLM and a custom RAG knowledge base.
 >
-> **Current state:** Barebone FastAPI backend (`/health` only) + default Next.js 16 / React 19 / Tailwind 4 frontend.
+> **Current state:** Multi-page FastAPI + Next.js dashboard with Jamf sync, RBAC (users/roles), AI chat sessions, streaming AI responses, and approval-gated policy/group/script creation previews.
 
 ---
 
@@ -400,16 +400,16 @@
 - [ ] Click-through to failing devices per check
 
 ### 3.11 Settings Page — Server Management
-- [ ] List of configured Jamf servers with status (connected/error), last sync time, device count
-- [ ] Add server form: Name, URL, Client ID, Client Secret (masked), test connection button
-- [ ] Edit/delete server actions
+- [x] List of configured Jamf servers with status (connected/error), last sync time, device count
+- [x] Add server form: Name, URL, Client ID, Client Secret (masked), test connection button
+- [x] Edit/delete server actions
 - [ ] Manual sync trigger button with real-time progress via SSE
 - [ ] Display sync logs (last N sync events, errors)
 
 ### 3.12 Settings Page — User Management
-- [ ] List of dashboard users
-- [ ] Add/edit/delete user form (admin only)
-- [ ] Change own password form
+- [x] List of dashboard users
+- [x] Add/edit/delete user form (admin only)
+- [x] Change own password form
 
 ### 3.13 API Client & State
 - [x] Create `lib/api.ts` — Axios instance with `baseURL`, auth token injection, 401 refresh interceptor
@@ -482,7 +482,8 @@
 - [ ] Implement configurable context window size and temperature settings
 
 ### 5.2 AI Chat Endpoints
-- [x] `POST /api/ai/chat` — streaming chat endpoint (SSE), accepts message + session_id, returns token stream
+- [x] `POST /api/ai/chat` — standard chat endpoint (message + session_id) with persisted history
+- [x] `POST /api/ai/chat/stream` — streaming chat endpoint (NDJSON stage/delta/final events)
 - [x] `GET /api/ai/sessions` — list user's chat sessions
 - [x] `POST /api/ai/sessions` — create new chat session
 - [x] `GET /api/ai/sessions/{id}/messages` — get message history for session
@@ -511,6 +512,7 @@
 #### Backend
 - [ ] Define a `ToolPermission` enum: `READ` and `WRITE`; annotate every LangChain tool with its permission level
 - [ ] Enforce at the `AgentExecutor` level: intercept any tool call tagged `WRITE` before execution and halt the agent, returning a `pending_approval` response instead of running the tool
+- [x] Implement interim pending-approval flow in AI router: show command preview and require explicit `approve`/`cancel` before executing create actions (policy/group/script)
 - [ ] Create a `PendingAction` database model — id, session_id (FK), user_id (FK), tool_name, parameters (JSONB), human_readable_summary, status (`pending` / `approved` / `rejected`), created_at, resolved_at
 - [ ] `POST /api/ai/pending-actions/{id}/approve` — user approves; backend executes the deferred tool call and streams the result back
 - [ ] `POST /api/ai/pending-actions/{id}/reject` — user rejects; action is cancelled and AI is notified to respond accordingly
@@ -522,8 +524,8 @@
 
 #### Frontend
 - [ ] In `ChatMessage.tsx`, when the AI calls any tool, always render a **"Command Preview" card** showing the tool name, all resolved parameters, and the human-readable summary before the result is shown — this applies to READ tools too so users can always see what was queried
-- [ ] For `WRITE` tool calls, render an **Approval Card** instead of the result: show the proposed command in full, with **Approve** and **Reject** buttons; disable both after one click
-- [ ] After approval or rejection, display the outcome inline in the chat thread
+- [x] For `WRITE` tool calls, render an **Approval Card** instead of the result: show the proposed command in full, with **Approve** and **Reject** buttons; disable both after one click
+- [x] After approval or rejection, display the outcome inline in the chat thread
 - [ ] Add a **Pending Approvals** badge on the AI nav item when there are unresolved actions
 - [ ] Build a **Pending Actions panel** (slide-out drawer or dedicated page) listing all pending actions with approve/reject controls
 - [ ] Build an **AI Audit Log** view under Settings (admin only): searchable, paginated table of all AI tool calls with tool name, parameters, user, timestamp, and approval status

@@ -18,6 +18,7 @@ import {
   Loader2,
   RotateCw,
   Users,
+  KeyRound,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -854,6 +855,9 @@ export default function SettingsPage() {
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncingAll, setSyncingAll] = useState(false);
   const [activeTab, setActiveTab] = useState<"servers" | "users">("servers");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const permissions = user?.permissions ?? [];
   const canManageSettings = permissions.includes("settings.manage") || !!user?.is_admin;
@@ -928,6 +932,22 @@ export default function SettingsPage() {
       setTimeout(() => { clearInterval(poll); setSyncingAll(false); qc.invalidateQueries({ queryKey: ["servers"] }); }, 60_000);
     },
     onError: () => { toast.error("Sync all failed"); setSyncingAll(false); },
+  });
+
+  const changePasswordMutation = useMutation({
+    mutationFn: (body: { current_password: string; new_password: string }) =>
+      api.post("/auth/change-password", body),
+    onSuccess: () => {
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      toast.success("Password updated. Please log in again on other devices.");
+    },
+    onError: (err: unknown) =>
+      toast.error(
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+          "Failed to update password",
+      ),
   });
 
   const handleSave = (form: ServerFormValues) => {
@@ -1126,6 +1146,62 @@ export default function SettingsPage() {
       )}
 
       {activeTab === "users" && <UsersRolesPanel canManageUsers={canManageUsers} canManageRoles={canManageRoles} />}
+
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <KeyRound className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">My Password</h2>
+        </div>
+        <div className="grid gap-3 px-4 py-4 sm:max-w-xl">
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            placeholder="Current password"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+          />
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="New password"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+          />
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="Confirm new password"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Password must include at least one uppercase letter and one digit.
+          </p>
+          <div>
+            <button
+              onClick={() => {
+                if (newPassword !== confirmPassword) {
+                  toast.error("New password confirmation does not match");
+                  return;
+                }
+                changePasswordMutation.mutate({
+                  current_password: currentPassword,
+                  new_password: newPassword,
+                });
+              }}
+              disabled={
+                changePasswordMutation.isPending ||
+                !currentPassword ||
+                !newPassword ||
+                !confirmPassword
+              }
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {changePasswordMutation.isPending ? "Updating..." : "Change Password"}
+            </button>
+          </div>
+        </div>
+      </div>
         </>
       )}
     </div>
