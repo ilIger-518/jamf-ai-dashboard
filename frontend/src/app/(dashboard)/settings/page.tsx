@@ -1345,7 +1345,7 @@ export default function SettingsPage() {
   const canManageServers = permissions.includes("servers.manage") || permissions.includes("servers.sync") || !!user?.is_admin;
   const canManageUsers = permissions.includes("users.manage") || !!user?.is_admin;
   const canManageRoles = permissions.includes("roles.manage") || !!user?.is_admin;
-  const canAccessUpdates = canManageSettings || canManageServers || !!user?.is_admin;
+  const canAccessUpdates = !!user;
   const tabs = useMemo(
     () => [
       ...(canManageServers ? [{ key: "servers" as const, label: "Jamf Servers", icon: Server }] : []),
@@ -1489,7 +1489,7 @@ export default function SettingsPage() {
         </div>
       ) : (
         <>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
@@ -1629,7 +1629,7 @@ export default function SettingsPage() {
 
       {activeTab === "logs" && <LogsPanel />}
 
-      {activeTab === "updates" && canAccessUpdates && <UpdatesPanel />}
+      {activeTab === "updates" && <UpdatesPanel />}
 
       <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
