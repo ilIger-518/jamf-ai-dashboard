@@ -36,10 +36,12 @@ Version: workspace snapshot (March 2026)
   - [6.2 Microsoft SSO variables](#62-microsoft-sso-variables)
   - [6.3 Cookie and security variables](#63-cookie-and-security-variables)
 - [7. Setup and Deployment Procedures](#7-setup-and-deployment-procedures)
-  - [7.1 Fresh local setup](#71-fresh-local-setup)
-  - [7.2 Rebuild and redeploy app services](#72-rebuild-and-redeploy-app-services)
-  - [7.3 Migrations and schema changes](#73-migrations-and-schema-changes)
-  - [7.4 Production hardening checklist](#74-production-hardening-checklist)
+  - [7.1 First setup after cloning (step-by-step)](#71-first-setup-after-cloning-step-by-step)
+  - [7.2 Fresh local setup](#72-fresh-local-setup)
+  - [7.3 Microsoft SSO setup runbook (end-to-end)](#73-microsoft-sso-setup-runbook-end-to-end)
+  - [7.4 Rebuild and redeploy app services](#74-rebuild-and-redeploy-app-services)
+  - [7.5 Migrations and schema changes](#75-migrations-and-schema-changes)
+  - [7.6 Production hardening checklist](#76-production-hardening-checklist)
 - [8. Day-2 Operations](#8-day-2-operations)
   - [8.1 Routine checks](#81-routine-checks)
   - [8.2 Useful commands](#82-useful-commands)
@@ -361,13 +363,93 @@ Configuration notes:
 
 ### 6.3 Cookie and security variables
 
-- COOKIE_SECURE is controlled by cookie_secure setting
+- `COOKIE_SECURE` maps to `cookie_secure` setting in backend config
 - use secure cookies in HTTPS deployments
 - keep SECRET_KEY and FERNET_KEY private and rotated by policy
 
 ## 7. Setup and Deployment Procedures
 
-### 7.1 Fresh local setup
+### 7.1 First setup after cloning (step-by-step)
+
+This is the recommended first-run sequence for new environments.
+
+1. Clone and enter repo
+
+```bash
+git clone <repo-url> jamf-ai-dashboard
+cd jamf-ai-dashboard
+```
+
+2. Create `.env`
+
+```bash
+cp .env.example .env
+```
+
+3. Generate strong secrets
+
+- `SECRET_KEY`:
+
+```bash
+openssl rand -hex 32
+```
+
+- `FERNET_KEY`:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+4. Start all services
+
+```bash
+docker compose up -d
+```
+
+5. Verify service health
+
+```bash
+docker compose ps
+docker compose logs --tail=80 backend
+```
+
+6. Bootstrap first admin user (one-time)
+
+The first registration is allowed without prior auth and becomes bootstrap admin.
+After first user creation, self-registration is disabled.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin",
+    "email": "admin@example.com",
+    "password": "StrongPass1",
+    "is_admin": true
+  }'
+```
+
+Password policy:
+- minimum 8 characters
+- at least one uppercase letter
+- at least one number
+
+7. Sign in and complete application setup
+
+- Navigate to `http://localhost:3000/login`
+- Sign in as the bootstrap user
+- Go to Settings -> Jamf Servers
+- Add/provision at least one Jamf server
+- Run sync and verify Dashboard data appears
+
+8. Optional: warm AI models
+
+```bash
+docker compose exec -T ollama ollama pull llama3.2:3b
+docker compose exec -T ollama ollama pull nomic-embed-text
+```
+
+### 7.2 Fresh local setup
 
 1. Copy env template:
 
@@ -396,14 +478,80 @@ docker compose ps
 - frontend: http://localhost:3000
 - backend docs: http://localhost:8000/docs
 
-### 7.2 Rebuild and redeploy app services
+### 7.3 Microsoft SSO setup runbook (end-to-end)
+
+This runbook configures Microsoft sign-in using Entra ID OIDC.
+
+1. Register app in Entra ID
+
+- Azure Portal -> Microsoft Entra ID -> App registrations -> New registration
+- Name: `Jamf AI Dashboard`
+- Supported account type: tenant-specific or multi-tenant as needed
+- Redirect URI (Web):
+  - local: `http://localhost:8000/api/v1/auth/sso/microsoft/callback`
+  - production: `https://<your-backend-domain>/api/v1/auth/sso/microsoft/callback`
+
+2. Create client secret
+
+- App registration -> Certificates & secrets -> New client secret
+- Copy and store the secret value securely
+
+3. Configure API permissions
+
+- Delegated: `openid`, `profile`, `email`
+- If OIDC profile lookup fails in your tenant, add `User.Read`
+- Grant admin consent where required by policy
+
+4. Configure application `.env`
+
+```env
+MICROSOFT_SSO_ENABLED=true
+MICROSOFT_TENANT_ID=<tenant-guid-or-common>
+MICROSOFT_CLIENT_ID=<app-client-id>
+MICROSOFT_CLIENT_SECRET=<client-secret>
+MICROSOFT_REDIRECT_URI=http://localhost:8000/api/v1/auth/sso/microsoft/callback
+FRONTEND_BASE_URL=http://localhost:3000
+COOKIE_SECURE=false
+```
+
+Production HTTPS notes:
+- Set `COOKIE_SECURE=true`
+- Use HTTPS values for `MICROSOFT_REDIRECT_URI` and `FRONTEND_BASE_URL`
+- Ensure TLS is terminated correctly at your ingress/proxy
+
+5. Restart services to apply env changes
+
+```bash
+docker compose up -d --build backend frontend
+```
+
+6. Validate SSO flow
+
+- Open login page and click `Sign in with Microsoft`
+- Complete Entra authentication
+- Confirm redirect to `/sso/callback?status=success` then dashboard
+
+Runtime behavior:
+- Existing user is matched by email
+- Unknown user is auto-created (non-admin)
+- If role `Viewer` exists, it is assigned to new SSO users
+
+7. Common SSO failure points
+
+- Redirect mismatch between Entra and `MICROSOFT_REDIRECT_URI`
+- Wrong tenant/client/secret
+- Missing delegated scopes or tenant consent
+- Cookie blocked due to incorrect `COOKIE_SECURE` for current protocol
+- `FRONTEND_BASE_URL` not matching actual frontend origin
+
+### 7.4 Rebuild and redeploy app services
 
 ```bash
 docker compose build backend frontend
 docker compose up -d backend frontend
 ```
 
-### 7.3 Migrations and schema changes
+### 7.5 Migrations and schema changes
 
 Backend startup executes:
 
@@ -423,7 +571,7 @@ Check current revision:
 docker compose exec -T backend alembic current
 ```
 
-### 7.4 Production hardening checklist
+### 7.6 Production hardening checklist
 
 - set strong SECRET_KEY and FERNET_KEY
 - enforce HTTPS and secure cookies
