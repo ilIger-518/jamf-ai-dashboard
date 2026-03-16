@@ -176,6 +176,9 @@
 - [x] Create `require_admin` FastAPI dependency
 - [x] Store refresh tokens in Redis with TTL
 - [x] Hash passwords with bcrypt via passlib
+- [ ] Add Microsoft SSO (Microsoft Entra ID / Azure AD) login with OIDC for web users
+- [ ] Add Microsoft SSO role mapping (Entra groups/claims -> local roles/permissions)
+- [ ] Add SSO fallback policy (local admin account + emergency access runbook)
 
 ### 2.4 Jamf Server Management Endpoints
 - [x] `GET /api/servers` — list all configured Jamf servers
@@ -702,6 +705,9 @@
 - [ ] Finalize `.github/workflows/ci.yml`: lint → test → build Docker images → push to GHCR
 - [ ] Create `.github/workflows/release.yml`: tag-triggered → build + push versioned image → create GitHub Release
 - [ ] Write `deploy/` folder with example server setup scripts (Ansible or shell)
+- [ ] Add auto-updater service: poll GitHub repo for new commits/tags on configured branch
+- [ ] Auto-updater workflow: pull latest code, run safety checks, then run `docker compose build` + `docker compose up -d`
+- [ ] Add rollback guard for updater (keep previous image tag and revert automatically on failed health checks)
 
 ---
 
