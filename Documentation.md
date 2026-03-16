@@ -42,6 +42,7 @@ Version: workspace snapshot (March 2026)
   - [7.4 Rebuild and redeploy app services](#74-rebuild-and-redeploy-app-services)
   - [7.5 Migrations and schema changes](#75-migrations-and-schema-changes)
   - [7.6 Production hardening checklist](#76-production-hardening-checklist)
+  - [7.7 Move deployment to another server](#77-move-deployment-to-another-server)
 - [8. Day-2 Operations](#8-day-2-operations)
   - [8.1 Routine checks](#81-routine-checks)
   - [8.2 Useful commands](#82-useful-commands)
@@ -579,6 +580,102 @@ docker compose exec -T backend alembic current
 - rotate Jamf API secrets on schedule
 - monitor container health and logs
 - backup PostgreSQL and Chroma data volumes
+
+### 7.7 Move deployment to another server
+
+Use this procedure when migrating the running stack to a new host.
+
+1. On current server, export database
+
+```bash
+cd /path/to/jamf-ai-dashboard
+docker compose exec -T postgres pg_dump -U jamfdash -d jamfdash -Fc > jamfdash.dump
+```
+
+2. Keep the same security secrets on the new server
+
+- keep `SECRET_KEY` identical
+- keep `FERNET_KEY` identical
+
+Without these values, existing encrypted Jamf credentials and auth behavior can break.
+
+3. Optional: backup vector/model volumes
+
+Chroma backup:
+
+```bash
+docker run --rm \
+  -v jamf-ai-dashboard_chroma_data:/from \
+  -v "$PWD":/backup \
+  alpine sh -c "cd /from && tar czf /backup/chroma_data.tgz ."
+```
+
+Ollama backup:
+
+```bash
+docker run --rm \
+  -v jamf-ai-dashboard_ollama_data:/from \
+  -v "$PWD":/backup \
+  alpine sh -c "cd /from && tar czf /backup/ollama_data.tgz ."
+```
+
+4. On new server, clone and configure
+
+```bash
+git clone <repo-url> jamf-ai-dashboard
+cd jamf-ai-dashboard
+cp .env.example .env
+```
+
+Copy `jamfdash.dump` (and optional archives) plus final `.env` values.
+
+5. Start base services on new server
+
+```bash
+docker compose up -d postgres redis chroma
+```
+
+6. Restore database
+
+```bash
+cat jamfdash.dump | docker compose exec -T postgres pg_restore -U jamfdash -d jamfdash --clean --if-exists
+```
+
+7. Optional: restore Chroma/Ollama volumes
+
+Example for Chroma:
+
+```bash
+docker compose stop chroma
+docker run --rm \
+  -v jamf-ai-dashboard_chroma_data:/to \
+  -v "$PWD":/backup \
+  alpine sh -c "cd /to && tar xzf /backup/chroma_data.tgz"
+docker compose start chroma
+```
+
+8. Start full application
+
+```bash
+docker compose up -d --build
+```
+
+9. Post-migration checks
+
+```bash
+docker compose ps
+docker compose logs --tail=120 backend
+docker compose logs --tail=120 updater
+```
+
+10. If hostname/domain changed, update external auth/network settings
+
+- `FRONTEND_BASE_URL`
+- `MICROSOFT_REDIRECT_URI`
+- `CORS_ORIGINS`
+- `COOKIE_SECURE` for HTTPS only
+
+Also update Microsoft Entra app redirect URIs to match the new backend URL.
 
 ## 8. Day-2 Operations
 

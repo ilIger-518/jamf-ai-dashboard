@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """
-build.py — Generate docs-static/site/api.html from Documentation.md.
+build.py — Generate docs-static/site pages from Documentation.md.
 
-Parses the API Catalog section (## 5.) and emits a fully styled HTML
-reference page with per-endpoint cards including method badges and
-short descriptions.  Run automatically by the Docker builder stage so
-rebuilding the docs-static image always picks up the latest markdown.
+Outputs:
+- api.html  : parsed API catalog with endpoint cards
+- docs.html : full handbook rendered from markdown with anchor nav
+
+Run automatically by the Docker builder stage so rebuilding docs-static
+always picks up the latest markdown.
 """
 import re
 import sys
+import html
 from pathlib import Path
 
 ROOT = Path(__file__).parent
 SRC_MD = ROOT.parent / "Documentation.md"
 OUT_HTML = ROOT / "site" / "api.html"
+OUT_DOCS_HTML = ROOT / "site" / "docs.html"
 
 # ── Short descriptions for each endpoint ────────────────────────────────────
 DESCRIPTIONS: dict[str, str] = {
@@ -107,6 +111,186 @@ def parse_api_catalog(md: str) -> list[dict]:
         i += 2
 
     return groups
+
+
+def slugify(text: str) -> str:
+    s = text.strip().lower()
+    s = re.sub(r"[^a-z0-9\s-]", "", s)
+    s = re.sub(r"\s+", "-", s)
+    return s.strip("-") or "section"
+
+
+def render_inline(text: str) -> str:
+    esc = html.escape(text)
+    esc = re.sub(r"`([^`]+)`", r"<code class=\"inline-code\">\1</code>", esc)
+    esc = re.sub(
+        r"\[([^\]]+)\]\(([^)]+)\)",
+        r'<a href="\2" target="_blank" rel="noreferrer">\1</a>',
+        esc,
+    )
+    esc = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", esc)
+    esc = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", esc)
+    return esc
+
+
+def parse_markdown_handbook(md: str) -> tuple[list[dict[str, str]], str]:
+    # Remove top title and markdown TOC block to avoid duplicate nav.
+    body = md
+    body = re.sub(r"^# .*?\n\n", "", body, count=1, flags=re.DOTALL)
+    body = re.sub(
+        r"^## Table of Contents\s*\n.*?(?=^## 1\. )",
+        "",
+        body,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+
+    nav_items: list[dict[str, str]] = []
+    chunks: list[str] = []
+
+    in_code = False
+    code_lines: list[str] = []
+    list_mode: str | None = None
+
+    lines = body.splitlines()
+    for raw_line in lines:
+        line = raw_line.rstrip("\n")
+
+        if line.strip().startswith("```"):
+            if in_code:
+                code_html = html.escape("\n".join(code_lines))
+                chunks.append(f'<pre class="cmd"><code>{code_html}</code></pre>')
+                code_lines = []
+                in_code = False
+            else:
+                if list_mode is not None:
+                    chunks.append("</ul>" if list_mode == "ul" else "</ol>")
+                    list_mode = None
+                in_code = True
+            continue
+
+        if in_code:
+            code_lines.append(line)
+            continue
+
+        heading_match = re.match(r"^(#{2,4})\s+(.+)$", line)
+        if heading_match:
+            if list_mode is not None:
+                chunks.append("</ul>" if list_mode == "ul" else "</ol>")
+                list_mode = None
+
+            level = len(heading_match.group(1))
+            text = heading_match.group(2).strip()
+            hid = slugify(text)
+
+            if level == 2:
+                nav_items.append({"id": hid, "title": text})
+
+            tag = "h2" if level == 2 else "h3" if level == 3 else "h4"
+            chunks.append(f'<{tag} id="{hid}">{render_inline(text)}</{tag}>')
+            continue
+
+        ordered_match = re.match(r"^\d+\.\s+(.+)$", line)
+        unordered_match = re.match(r"^-\s+(.+)$", line)
+        if ordered_match or unordered_match:
+          if ordered_match:
+            mode = "ol"
+            text = ordered_match.group(1)
+          else:
+            mode = "ul"
+            text = unordered_match.group(1) if unordered_match else ""
+
+            if list_mode != mode:
+                if list_mode is not None:
+                    chunks.append("</ul>" if list_mode == "ul" else "</ol>")
+                chunks.append(f"<{mode}>")
+                list_mode = mode
+
+            chunks.append(f"<li>{render_inline(text.strip())}</li>")
+            continue
+
+        if list_mode is not None and line.strip() == "":
+            chunks.append("</ul>" if list_mode == "ul" else "</ol>")
+            list_mode = None
+            continue
+
+        if line.strip() == "---":
+            chunks.append('<hr class="nav-divider" />')
+            continue
+
+        if line.strip():
+            chunks.append(f"<p>{render_inline(line.strip())}</p>")
+
+    if list_mode is not None:
+        chunks.append("</ul>" if list_mode == "ul" else "</ol>")
+
+    return nav_items, "\n".join(chunks)
+
+
+def generate_docs_html(md: str) -> str:
+    nav_items, content_html = parse_markdown_handbook(md)
+    nav = "\n".join(
+        f'          <a href="#{item["id"]}" class="nav-link">{html.escape(item["title"])}</a>'
+        for item in nav_items
+    )
+
+    return f"""<!doctype html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"UTF-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />
+    <title>Technical Documentation — Jamf AI Dashboard</title>
+    <link rel=\"preconnect\" href=\"https://fonts.googleapis.com\" />
+    <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin />
+    <link
+      href=\"https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap\"
+      rel=\"stylesheet\"
+    />
+    <link rel=\"stylesheet\" href=\"styles.css\" />
+  </head>
+  <body>
+    <header class=\"hero hero-sm\">
+      <div class=\"hero-inner\">
+        <p class=\"eyebrow\"><a href=\"index.html\" class=\"eyebrow-link\">← Docs Home</a></p>
+        <h1>Technical Documentation</h1>
+        <p class=\"lead\">Complete rendered handbook generated from <code class=\"inline-code\">Documentation.md</code>.</p>
+      </div>
+      <div class=\"hero-orb orb-a\"></div>
+      <div class=\"hero-orb orb-b\"></div>
+    </header>
+
+    <main class=\"layout\">
+      <aside class=\"sidebar card\">
+        <div class=\"nav-search-wrap\">
+          <input id=\"navSearch\" type=\"search\" class=\"nav-search\" placeholder=\"Search sections…\" autocomplete=\"off\" />
+        </div>
+        <nav id=\"sidebarNav\">
+{nav}
+          <hr class=\"nav-divider\" />
+          <a href=\"api.html\" class=\"nav-link nav-link-accent\">API Reference →</a>
+          <a href=\"Documentation.md\" class=\"nav-link nav-link-accent\">Raw Markdown</a>
+        </nav>
+      </aside>
+
+      <section class=\"content\" id=\"mainContent\">
+        <article class=\"card section\">
+{content_html}
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const links = document.querySelectorAll('.nav-link');
+      document.getElementById('navSearch').addEventListener('input', function () {{
+        const q = this.value.toLowerCase().trim();
+        links.forEach(link => {{
+          if (!link.getAttribute('href')?.startsWith('#')) return;
+          link.style.display = !q || link.textContent.toLowerCase().includes(q) ? '' : 'none';
+        }});
+      }});
+    </script>
+  </body>
+</html>
+"""
 
 
 # ── HTML builders ────────────────────────────────────────────────────────────
@@ -256,11 +440,14 @@ def main() -> None:
         sys.exit("ERROR: Could not parse API Catalog (## 5.) from Documentation.md")
 
     html = generate_html(groups)
+    docs_html = generate_docs_html(md)
     OUT_HTML.parent.mkdir(parents=True, exist_ok=True)
     OUT_HTML.write_text(html, encoding="utf-8")
+    OUT_DOCS_HTML.write_text(docs_html, encoding="utf-8")
 
     total = sum(len(g["endpoints"]) for g in groups)
     print(f"[build.py] Generated {OUT_HTML.relative_to(ROOT.parent)}")
+    print(f"[build.py] Generated {OUT_DOCS_HTML.relative_to(ROOT.parent)}")
     print(f"           {len(groups)} sections, {total} endpoints")
 
 

@@ -1,0 +1,850 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Technical Documentation — Jamf AI Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero hero-sm">
+      <div class="hero-inner">
+        <p class="eyebrow"><a href="index.html" class="eyebrow-link">← Docs Home</a></p>
+        <h1>Technical Documentation</h1>
+        <p class="lead">Complete rendered handbook generated from <code class="inline-code">Documentation.md</code>.</p>
+      </div>
+      <div class="hero-orb orb-a"></div>
+      <div class="hero-orb orb-b"></div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar card">
+        <div class="nav-search-wrap">
+          <input id="navSearch" type="search" class="nav-search" placeholder="Search sections…" autocomplete="off" />
+        </div>
+        <nav id="sidebarNav">
+          <a href="#1-purpose-and-scope" class="nav-link">1. Purpose and Scope</a>
+          <a href="#2-high-level-architecture" class="nav-link">2. High-Level Architecture</a>
+          <a href="#3-repository-structure" class="nav-link">3. Repository Structure</a>
+          <a href="#4-core-features-and-how-they-work" class="nav-link">4. Core Features and How They Work</a>
+          <a href="#5-api-catalog" class="nav-link">5. API Catalog</a>
+          <a href="#6-configuration-reference" class="nav-link">6. Configuration Reference</a>
+          <a href="#7-setup-and-deployment-procedures" class="nav-link">7. Setup and Deployment Procedures</a>
+          <a href="#8-day-2-operations" class="nav-link">8. Day-2 Operations</a>
+          <a href="#9-troubleshooting-guide" class="nav-link">9. Troubleshooting Guide</a>
+          <a href="#10-security-and-compliance-notes" class="nav-link">10. Security and Compliance Notes</a>
+          <a href="#11-extending-the-codebase" class="nav-link">11. Extending the Codebase</a>
+          <a href="#12-testing-and-validation" class="nav-link">12. Testing and Validation</a>
+          <a href="#13-known-gaps-and-planned-work" class="nav-link">13. Known Gaps and Planned Work</a>
+          <a href="#14-reference-links" class="nav-link">14. Reference Links</a>
+          <hr class="nav-divider" />
+          <a href="api.html" class="nav-link nav-link-accent">API Reference →</a>
+          <a href="Documentation.md" class="nav-link nav-link-accent">Raw Markdown</a>
+        </nav>
+      </aside>
+
+      <section class="content" id="mainContent">
+        <article class="card section">
+<p>Version: workspace snapshot (March 2026)</p>
+<hr class="nav-divider" />
+<h2 id="1-purpose-and-scope">1. Purpose and Scope</h2>
+<p>Jamf AI Dashboard is a self-hosted operations platform for Jamf Pro environments.</p>
+<p>It provides:</p>
+<ul>
+<li>centralized inventory and compliance visibility</li>
+<li>multi-server Jamf management</li>
+<li>AI-assisted workflows with approval controls</li>
+<li>knowledge scraping and local RAG search</li>
+<li>migration tooling between Jamf servers</li>
+<li>role-based access control and audit logging</li>
+</ul>
+<p>This document is intended for:</p>
+<ul>
+<li>operators running the stack in Docker</li>
+<li>admins configuring auth, Jamf servers, AI, and scraping</li>
+<li>developers extending backend and frontend code</li>
+</ul>
+<h2 id="2-high-level-architecture">2. High-Level Architecture</h2>
+<h3 id="21-components">2.1 Components</h3>
+<ul>
+<li>Frontend: Next.js app running on port 3000</li>
+<li>Backend: FastAPI app running on port 8000</li>
+<li>PostgreSQL: primary relational data store</li>
+<li>Redis: refresh-token/session state and runtime cache/status</li>
+<li>ChromaDB: vector store for knowledge documents</li>
+<li>Ollama: local LLM and embedding runtime</li>
+</ul>
+<h3 id="22-data-and-request-flow">2.2 Data and request flow</h3>
+<ol>
+<li>Browser calls frontend routes.</li>
+<li>Frontend calls backend API under /api/v1.</li>
+<li>Backend authenticates user and applies permission checks.</li>
+<li>Backend reads/writes PostgreSQL and Redis as needed.</li>
+<li>Jamf live data is fetched via Jamf API/OAuth client credentials.</li>
+<li>AI endpoints use Ollama and ChromaDB-backed retrieval.</li>
+</ol>
+<h3 id="23-runtime-orchestration">2.3 Runtime orchestration</h3>
+<ul>
+<li>Docker Compose controls all services.</li>
+<li>Backend container runs Alembic migrations at startup before serving.</li>
+<li>APScheduler in backend runs periodic sync jobs.</li>
+<li>Healthchecks are configured for all core containers.</li>
+</ul>
+<h2 id="3-repository-structure">3. Repository Structure</h2>
+<p>Top-level important files:</p>
+<ul>
+<li>README.md: quickstart</li>
+<li>Documentation.md: this document</li>
+<li>TODO.md: product roadmap</li>
+<li>CHANGELOG.md: feature history</li>
+<li>docker-compose.yml: local/full stack runtime</li>
+<li>.env.example: configuration template</li>
+</ul>
+<p>Backend layout:</p>
+<ul>
+<li>backend/app/main.py: app factory, middleware, router registration, lifecycle</li>
+<li>backend/app/config.py: environment-driven settings</li>
+<li>backend/app/database.py: SQLAlchemy async engine/session</li>
+<li>backend/app/cache.py: Redis connection helpers</li>
+<li>backend/app/models: SQLAlchemy models</li>
+<li>backend/app/schemas: Pydantic schemas</li>
+<li>backend/app/routers: API routes</li>
+<li>backend/app/services: business logic (auth, Jamf sync, scrape, vector store)</li>
+<li>backend/alembic: database migrations</li>
+</ul>
+<p>Frontend layout:</p>
+<ul>
+<li>frontend/src/app: App Router pages and route groups</li>
+<li>frontend/src/components: reusable UI components</li>
+<li>frontend/src/lib/api.ts: Axios client + auth refresh handling</li>
+<li>frontend/src/store/authStore.ts: auth state/session bootstrap</li>
+<li>frontend/src/store/uiStore.ts: UI-scoped state</li>
+<li>frontend/src/hooks/useRequireAuth.ts: route protection</li>
+</ul>
+<h2 id="4-core-features-and-how-they-work">4. Core Features and How They Work</h2>
+<h3 id="41-authentication-and-authorization">4.1 Authentication and authorization</h3>
+<p>Implemented auth modes:</p>
+<ul>
+<li>local username/password login</li>
+<li>Microsoft SSO (OIDC, Entra ID) start/callback flow</li>
+</ul>
+<p>Local auth behavior:</p>
+<ul>
+<li>login issues access token and refresh token</li>
+<li>refresh token is stored in an httpOnly cookie</li>
+<li>frontend bootstraps session by calling /auth/refresh on app start</li>
+</ul>
+<p>Authorization behavior:</p>
+<ul>
+<li>role + permission checks in backend dependencies</li>
+<li>admins can manage users/roles/settings and server operations</li>
+</ul>
+<p>Password management:</p>
+<ul>
+<li>user password changes are supported</li>
+<li>forgotten passwords currently require manual admin/database reset</li>
+</ul>
+<h3 id="42-microsoft-sso-flow-new">4.2 Microsoft SSO flow (new)</h3>
+<p>Backend endpoints:</p>
+<ul>
+<li>GET /api/v1/auth/sso/microsoft/start</li>
+<li>GET /api/v1/auth/sso/microsoft/callback</li>
+</ul>
+<p>Flow:</p>
+<ol>
+<li>User clicks Sign in with Microsoft.</li>
+<li>Backend generates state and redirects to Microsoft authorize endpoint.</li>
+<li>Callback validates state and exchanges auth code for token.</li>
+<li>Backend reads user profile via Microsoft Graph OIDC userinfo.</li>
+<li>Existing local user by email is reused; missing user is auto-created.</li>
+<li>Refresh cookie is issued; frontend callback initializes session.</li>
+</ol>
+<p>Current role assignment behavior:</p>
+<ul>
+<li>newly auto-created SSO users are non-admin</li>
+<li>Viewer role is assigned if that role exists</li>
+<li>Entra group-to-role mapping is planned (not yet implemented)</li>
+</ul>
+<h3 id="43-jamf-server-management">4.3 Jamf server management</h3>
+<p>Settings page supports:</p>
+<ul>
+<li>add/update/delete Jamf server configs</li>
+<li>provision flow for credentials and role setup</li>
+<li>manual per-server sync and sync-all trigger</li>
+<li>sync status readback</li>
+</ul>
+<p>Server credentials:</p>
+<ul>
+<li>stored encrypted at rest using Fernet key</li>
+</ul>
+<h3 id="44-fleet-data-pages">4.4 Fleet data pages</h3>
+<p>Operational pages:</p>
+<ul>
+<li>Devices</li>
+<li>Policies</li>
+<li>Smart Groups</li>
+<li>Patches</li>
+<li>Dashboard stats</li>
+</ul>
+<p>Behavior:</p>
+<ul>
+<li>server selector supports all servers or single server scope</li>
+<li>filtering, pagination, and detail views</li>
+<li>live Jamf deep links where applicable</li>
+</ul>
+<h3 id="45-scripts-and-packages-assets">4.5 Scripts and Packages assets</h3>
+<p>Scripts page supports:</p>
+<ul>
+<li>list scripts from selected Jamf server</li>
+<li>click script name to load embedded detail view</li>
+<li>script code viewer with optional syntax highlighting and language selection</li>
+<li>script parameter display</li>
+<li>click script ID to open direct Jamf script URL</li>
+<li>back button to return to list-only mode</li>
+</ul>
+<p>Packages page supports:</p>
+<ul>
+<li>live package listing from Jamf server</li>
+</ul>
+<h3 id="46-knowledge-base-and-scraping">4.6 Knowledge base and scraping</h3>
+<p>Knowledge module supports:</p>
+<ul>
+<li>create scrape jobs from domain/URL</li>
+<li>monitor running/completed jobs</li>
+<li>runtime control: pause/resume/cancel</li>
+<li>CPU cap mode and percentage controls</li>
+<li>source listing and delete operations</li>
+</ul>
+<p>Restart resilience:</p>
+<ul>
+<li>jobs left in running state during restart are marked failed at startup</li>
+</ul>
+<h3 id="47-ai-assistant">4.7 AI assistant</h3>
+<p>AI module supports:</p>
+<ul>
+<li>user sessions and message history</li>
+<li>request/response chat endpoints</li>
+<li>streaming chat endpoint</li>
+<li>approval-gated actions for sensitive Jamf operations</li>
+</ul>
+<h2 id="5-api-catalog">5. API Catalog</h2>
+<p>All routes are mounted under /api/v1.</p>
+<h3 id="51-health">5.1 Health</h3>
+<ul>
+<li>GET /health</li>
+</ul>
+<h3 id="52-auth">5.2 Auth</h3>
+<ul>
+<li>POST /auth/register</li>
+<li>POST /auth/login</li>
+<li>POST /auth/refresh</li>
+<li>POST /auth/logout</li>
+<li>GET /auth/me</li>
+<li>POST /auth/change-password</li>
+<li>GET /auth/sso/microsoft/start</li>
+<li>GET /auth/sso/microsoft/callback</li>
+</ul>
+<h3 id="53-users-and-roles">5.3 Users and roles</h3>
+<ul>
+<li>GET /users</li>
+<li>POST /users</li>
+<li>PATCH /users/{user_id}</li>
+<li>DELETE /users/{user_id}</li>
+<li>GET /users/roles</li>
+<li>POST /users/roles</li>
+<li>PATCH /users/roles/{role_id}</li>
+<li>DELETE /users/roles/{role_id}</li>
+<li>GET /users/permissions</li>
+</ul>
+<h3 id="54-servers">5.4 Servers</h3>
+<ul>
+<li>GET /servers</li>
+<li>POST /servers</li>
+<li>PATCH /servers/{server_id}</li>
+<li>DELETE /servers/{server_id}</li>
+<li>POST /servers/provision</li>
+<li>POST /servers/{server_id}/sync</li>
+<li>POST /servers/sync-all</li>
+<li>GET /servers/{server_id}/sync/status</li>
+</ul>
+<h3 id="55-dashboard-and-inventory">5.5 Dashboard and inventory</h3>
+<ul>
+<li>GET /dashboard/stats</li>
+<li>GET /devices</li>
+<li>GET /devices/{device_id}</li>
+<li>GET /policies</li>
+<li>GET /policies/{policy_id}</li>
+<li>GET /smart-groups</li>
+<li>GET /smart-groups/{group_id}</li>
+<li>GET /patches</li>
+<li>GET /patches/{patch_id}</li>
+</ul>
+<h3 id="56-assets">5.6 Assets</h3>
+<ul>
+<li>GET /assets/scripts</li>
+<li>GET /assets/scripts/{script_id}</li>
+<li>GET /assets/packages</li>
+</ul>
+<h3 id="57-knowledge">5.7 Knowledge</h3>
+<ul>
+<li>POST /knowledge/scrape</li>
+<li>GET /knowledge/scrape</li>
+<li>GET /knowledge/scrape/system</li>
+<li>GET /knowledge/scrape/{job_id}</li>
+<li>GET /knowledge/scrape/{job_id}/logs</li>
+<li>GET /knowledge/scrape/{job_id}/runtime</li>
+<li>PATCH /knowledge/scrape/{job_id}</li>
+<li>DELETE /knowledge/scrape/{job_id}</li>
+<li>GET /knowledge/sources</li>
+<li>DELETE /knowledge/sources/{source_id}</li>
+</ul>
+<h3 id="58-migrator">5.8 Migrator</h3>
+<ul>
+<li>GET /migrator/objects</li>
+<li>POST /migrator/migrate</li>
+</ul>
+<h3 id="59-ai">5.9 AI</h3>
+<ul>
+<li>GET /ai/sessions</li>
+<li>POST /ai/sessions</li>
+<li>DELETE /ai/sessions/{session_id}</li>
+<li>GET /ai/sessions/{session_id}/messages</li>
+<li>POST /ai/chat</li>
+<li>POST /ai/chat/stream</li>
+</ul>
+<h3 id="510-logs">5.10 Logs</h3>
+<ul>
+<li>GET /logs</li>
+</ul>
+<h2 id="6-configuration-reference">6. Configuration Reference</h2>
+<p>The main config source is .env, loaded by backend settings in backend/app/config.py and frontend env settings in docker-compose runtime.</p>
+<h3 id="61-required-baseline-variables">6.1 Required baseline variables</h3>
+<p>Security and auth:</p>
+<ul>
+<li>SECRET_KEY: JWT signing secret (must be strong)</li>
+<li>JWT_ALGORITHM: default HS256</li>
+<li>ACCESS_TOKEN_EXPIRE_MINUTES</li>
+<li>REFRESH_TOKEN_EXPIRE_DAYS</li>
+<li>FERNET_KEY: encryption key for Jamf credentials</li>
+</ul>
+<p>Data and cache:</p>
+<ul>
+<li>DATABASE_URL</li>
+<li>REDIS_URL</li>
+</ul>
+<p>AI and retrieval:</p>
+<ul>
+<li>OLLAMA_BASE_URL</li>
+<li>OLLAMA_MODEL</li>
+<li>EMBEDDING_MODEL_NAME</li>
+<li>CHROMA_HOST</li>
+<li>CHROMA_PORT</li>
+</ul>
+<p>Sync and API:</p>
+<ul>
+<li>SYNC_INTERVAL_MINUTES</li>
+<li>CORS_ORIGINS</li>
+<li>LOG_LEVEL</li>
+</ul>
+<p>Frontend:</p>
+<ul>
+<li>NEXT_PUBLIC_API_URL</li>
+</ul>
+<h3 id="62-microsoft-sso-variables">6.2 Microsoft SSO variables</h3>
+<ul>
+<li>MICROSOFT_SSO_ENABLED</li>
+<li>MICROSOFT_TENANT_ID</li>
+<li>MICROSOFT_CLIENT_ID</li>
+<li>MICROSOFT_CLIENT_SECRET</li>
+<li>MICROSOFT_REDIRECT_URI</li>
+<li>FRONTEND_BASE_URL</li>
+</ul>
+<p>Configuration notes:</p>
+<ul>
+<li>set MICROSOFT_SSO_ENABLED=true to enable SSO button flow</li>
+<li>callback URL must match Entra app registration exactly</li>
+<li>FRONTEND_BASE_URL is used for post-login redirect target</li>
+</ul>
+<h3 id="63-cookie-and-security-variables">6.3 Cookie and security variables</h3>
+<ul>
+<li><code class=\"inline-code\">COOKIE_SECURE</code> maps to <code class=\"inline-code\">cookie_secure</code> setting in backend config</li>
+<li>use secure cookies in HTTPS deployments</li>
+<li>keep SECRET_KEY and FERNET_KEY private and rotated by policy</li>
+</ul>
+<h2 id="7-setup-and-deployment-procedures">7. Setup and Deployment Procedures</h2>
+<h3 id="71-first-setup-after-cloning-step-by-step">7.1 First setup after cloning (step-by-step)</h3>
+<p>This is the recommended first-run sequence for new environments.</p>
+<ol>
+<li>Clone and enter repo</li>
+</ol>
+<pre class="cmd"><code>git clone &lt;repo-url&gt; jamf-ai-dashboard
+cd jamf-ai-dashboard</code></pre>
+<ol>
+<li>Create <code class=\"inline-code\">.env</code></li>
+</ol>
+<pre class="cmd"><code>cp .env.example .env</code></pre>
+<ol>
+<li>Generate strong secrets</li>
+</ol>
+<ul>
+<li><code class=\"inline-code\">SECRET_KEY</code>:</li>
+</ul>
+<pre class="cmd"><code>openssl rand -hex 32</code></pre>
+<ul>
+<li><code class=\"inline-code\">FERNET_KEY</code>:</li>
+</ul>
+<pre class="cmd"><code>python -c &quot;from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())&quot;</code></pre>
+<ol>
+<li>Start all services</li>
+</ol>
+<pre class="cmd"><code>docker compose up -d</code></pre>
+<ol>
+<li>Verify service health</li>
+</ol>
+<pre class="cmd"><code>docker compose ps
+docker compose logs --tail=80 backend</code></pre>
+<ol>
+<li>Bootstrap first admin user (one-time)</li>
+</ol>
+<p>The first registration is allowed without prior auth and becomes bootstrap admin.</p>
+<p>After first user creation, self-registration is disabled.</p>
+<pre class="cmd"><code>curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#x27;{
+    &quot;username&quot;: &quot;admin&quot;,
+    &quot;email&quot;: &quot;admin@example.com&quot;,
+    &quot;password&quot;: &quot;StrongPass1&quot;,
+    &quot;is_admin&quot;: true
+  }&#x27;</code></pre>
+<p>Password policy:</p>
+<ul>
+<li>minimum 8 characters</li>
+<li>at least one uppercase letter</li>
+<li>at least one number</li>
+</ul>
+<ol>
+<li>Sign in and complete application setup</li>
+</ol>
+<ul>
+<li>Navigate to <code class=\"inline-code\">http://localhost:3000/login</code></li>
+<li>Sign in as the bootstrap user</li>
+<li>Go to Settings -&gt; Jamf Servers</li>
+<li>Add/provision at least one Jamf server</li>
+<li>Run sync and verify Dashboard data appears</li>
+</ul>
+<ol>
+<li>Optional: warm AI models</li>
+</ol>
+<pre class="cmd"><code>docker compose exec -T ollama ollama pull llama3.2:3b
+docker compose exec -T ollama ollama pull nomic-embed-text</code></pre>
+<h3 id="72-fresh-local-setup">7.2 Fresh local setup</h3>
+<ol>
+<li>Copy env template:</li>
+</ol>
+<pre class="cmd"><code>cp .env.example .env</code></pre>
+<ol>
+<li>Edit .env values, especially:</li>
+</ol>
+<ul>
+<li>secrets</li>
+<li>Jamf credentials</li>
+<li>Microsoft SSO vars if enabled</li>
+</ul>
+<ol>
+<li>Start stack:</li>
+</ol>
+<pre class="cmd"><code>docker compose up -d</code></pre>
+<ol>
+<li>Verify services:</li>
+</ol>
+<pre class="cmd"><code>docker compose ps</code></pre>
+<ol>
+<li>Open:</li>
+</ol>
+<ul>
+<li>frontend: http://localhost:3000</li>
+<li>backend docs: http://localhost:8000/docs</li>
+</ul>
+<h3 id="73-microsoft-sso-setup-runbook-end-to-end">7.3 Microsoft SSO setup runbook (end-to-end)</h3>
+<p>This runbook configures Microsoft sign-in using Entra ID OIDC.</p>
+<ol>
+<li>Register app in Entra ID</li>
+</ol>
+<ul>
+<li>Azure Portal -&gt; Microsoft Entra ID -&gt; App registrations -&gt; New registration</li>
+<li>Name: <code class=\"inline-code\">Jamf AI Dashboard</code></li>
+<li>Supported account type: tenant-specific or multi-tenant as needed</li>
+<li>Redirect URI (Web):</li>
+<p>- local: <code class=\"inline-code\">http://localhost:8000/api/v1/auth/sso/microsoft/callback</code></p>
+<p>- production: <code class=\"inline-code\">https://&lt;your-backend-domain&gt;/api/v1/auth/sso/microsoft/callback</code></p>
+</ul>
+<ol>
+<li>Create client secret</li>
+</ol>
+<ul>
+<li>App registration -&gt; Certificates &amp; secrets -&gt; New client secret</li>
+<li>Copy and store the secret value securely</li>
+</ul>
+<ol>
+<li>Configure API permissions</li>
+</ol>
+<ul>
+<li>Delegated: <code class=\"inline-code\">openid</code>, <code class=\"inline-code\">profile</code>, <code class=\"inline-code\">email</code></li>
+<li>If OIDC profile lookup fails in your tenant, add <code class=\"inline-code\">User.Read</code></li>
+<li>Grant admin consent where required by policy</li>
+</ul>
+<ol>
+<li>Configure application <code class=\"inline-code\">.env</code></li>
+</ol>
+<pre class="cmd"><code>MICROSOFT_SSO_ENABLED=true
+MICROSOFT_TENANT_ID=&lt;tenant-guid-or-common&gt;
+MICROSOFT_CLIENT_ID=&lt;app-client-id&gt;
+MICROSOFT_CLIENT_SECRET=&lt;client-secret&gt;
+MICROSOFT_REDIRECT_URI=http://localhost:8000/api/v1/auth/sso/microsoft/callback
+FRONTEND_BASE_URL=http://localhost:3000
+COOKIE_SECURE=false</code></pre>
+<p>Production HTTPS notes:</p>
+<ul>
+<li>Set <code class=\"inline-code\">COOKIE_SECURE=true</code></li>
+<li>Use HTTPS values for <code class=\"inline-code\">MICROSOFT_REDIRECT_URI</code> and <code class=\"inline-code\">FRONTEND_BASE_URL</code></li>
+<li>Ensure TLS is terminated correctly at your ingress/proxy</li>
+</ul>
+<ol>
+<li>Restart services to apply env changes</li>
+</ol>
+<pre class="cmd"><code>docker compose up -d --build backend frontend</code></pre>
+<ol>
+<li>Validate SSO flow</li>
+</ol>
+<ul>
+<li>Open login page and click <code class=\"inline-code\">Sign in with Microsoft</code></li>
+<li>Complete Entra authentication</li>
+<li>Confirm redirect to <code class=\"inline-code\">/sso/callback?status=success</code> then dashboard</li>
+</ul>
+<p>Runtime behavior:</p>
+<ul>
+<li>Existing user is matched by email</li>
+<li>Unknown user is auto-created (non-admin)</li>
+<li>If role <code class=\"inline-code\">Viewer</code> exists, it is assigned to new SSO users</li>
+</ul>
+<ol>
+<li>Common SSO failure points</li>
+</ol>
+<ul>
+<li>Redirect mismatch between Entra and <code class=\"inline-code\">MICROSOFT_REDIRECT_URI</code></li>
+<li>Wrong tenant/client/secret</li>
+<li>Missing delegated scopes or tenant consent</li>
+<li>Cookie blocked due to incorrect <code class=\"inline-code\">COOKIE_SECURE</code> for current protocol</li>
+<li><code class=\"inline-code\">FRONTEND_BASE_URL</code> not matching actual frontend origin</li>
+</ul>
+<h3 id="74-rebuild-and-redeploy-app-services">7.4 Rebuild and redeploy app services</h3>
+<pre class="cmd"><code>docker compose build backend frontend
+docker compose up -d backend frontend</code></pre>
+<h3 id="75-migrations-and-schema-changes">7.5 Migrations and schema changes</h3>
+<p>Backend startup executes:</p>
+<pre class="cmd"><code>alembic upgrade head</code></pre>
+<p>Manual migration apply:</p>
+<pre class="cmd"><code>docker compose exec -T backend alembic upgrade head</code></pre>
+<p>Check current revision:</p>
+<pre class="cmd"><code>docker compose exec -T backend alembic current</code></pre>
+<h3 id="76-production-hardening-checklist">7.6 Production hardening checklist</h3>
+<ul>
+<li>set strong SECRET_KEY and FERNET_KEY</li>
+<li>enforce HTTPS and secure cookies</li>
+<li>limit CORS origins to known domains</li>
+<li>rotate Jamf API secrets on schedule</li>
+<li>monitor container health and logs</li>
+<li>backup PostgreSQL and Chroma data volumes</li>
+</ul>
+<h3 id="77-move-deployment-to-another-server">7.7 Move deployment to another server</h3>
+<p>Use this procedure when migrating the running stack to a new host.</p>
+<ol>
+<li>On current server, export database</li>
+</ol>
+<pre class="cmd"><code>cd /path/to/jamf-ai-dashboard
+docker compose exec -T postgres pg_dump -U jamfdash -d jamfdash -Fc &gt; jamfdash.dump</code></pre>
+<ol>
+<li>Keep the same security secrets on the new server</li>
+</ol>
+<ul>
+<li>keep <code class=\"inline-code\">SECRET_KEY</code> identical</li>
+<li>keep <code class=\"inline-code\">FERNET_KEY</code> identical</li>
+</ul>
+<p>Without these values, existing encrypted Jamf credentials and auth behavior can break.</p>
+<ol>
+<li>Optional: backup vector/model volumes</li>
+</ol>
+<p>Chroma backup:</p>
+<pre class="cmd"><code>docker run --rm \
+  -v jamf-ai-dashboard_chroma_data:/from \
+  -v &quot;$PWD&quot;:/backup \
+  alpine sh -c &quot;cd /from &amp;&amp; tar czf /backup/chroma_data.tgz .&quot;</code></pre>
+<p>Ollama backup:</p>
+<pre class="cmd"><code>docker run --rm \
+  -v jamf-ai-dashboard_ollama_data:/from \
+  -v &quot;$PWD&quot;:/backup \
+  alpine sh -c &quot;cd /from &amp;&amp; tar czf /backup/ollama_data.tgz .&quot;</code></pre>
+<ol>
+<li>On new server, clone and configure</li>
+</ol>
+<pre class="cmd"><code>git clone &lt;repo-url&gt; jamf-ai-dashboard
+cd jamf-ai-dashboard
+cp .env.example .env</code></pre>
+<p>Copy <code class=\"inline-code\">jamfdash.dump</code> (and optional archives) plus final <code class=\"inline-code\">.env</code> values.</p>
+<ol>
+<li>Start base services on new server</li>
+</ol>
+<pre class="cmd"><code>docker compose up -d postgres redis chroma</code></pre>
+<ol>
+<li>Restore database</li>
+</ol>
+<pre class="cmd"><code>cat jamfdash.dump | docker compose exec -T postgres pg_restore -U jamfdash -d jamfdash --clean --if-exists</code></pre>
+<ol>
+<li>Optional: restore Chroma/Ollama volumes</li>
+</ol>
+<p>Example for Chroma:</p>
+<pre class="cmd"><code>docker compose stop chroma
+docker run --rm \
+  -v jamf-ai-dashboard_chroma_data:/to \
+  -v &quot;$PWD&quot;:/backup \
+  alpine sh -c &quot;cd /to &amp;&amp; tar xzf /backup/chroma_data.tgz&quot;
+docker compose start chroma</code></pre>
+<ol>
+<li>Start full application</li>
+</ol>
+<pre class="cmd"><code>docker compose up -d --build</code></pre>
+<ol>
+<li>Post-migration checks</li>
+</ol>
+<pre class="cmd"><code>docker compose ps
+docker compose logs --tail=120 backend
+docker compose logs --tail=120 updater</code></pre>
+<ol>
+<li>If hostname/domain changed, update external auth/network settings</li>
+</ol>
+<ul>
+<li><code class=\"inline-code\">FRONTEND_BASE_URL</code></li>
+<li><code class=\"inline-code\">MICROSOFT_REDIRECT_URI</code></li>
+<li><code class=\"inline-code\">CORS_ORIGINS</code></li>
+<li><code class=\"inline-code\">COOKIE_SECURE</code> for HTTPS only</li>
+</ul>
+<p>Also update Microsoft Entra app redirect URIs to match the new backend URL.</p>
+<h2 id="8-day-2-operations">8. Day-2 Operations</h2>
+<h3 id="81-routine-checks">8.1 Routine checks</h3>
+<ul>
+<li>container health statuses</li>
+<li>backend logs for sync or auth errors</li>
+<li>knowledge scrape queue and failed jobs</li>
+<li>database growth and index performance</li>
+<li>Redis memory and key health</li>
+</ul>
+<h3 id="82-useful-commands">8.2 Useful commands</h3>
+<p>Stack status:</p>
+<pre class="cmd"><code>docker compose ps</code></pre>
+<p>Backend logs:</p>
+<pre class="cmd"><code>docker compose logs -f backend</code></pre>
+<p>Frontend logs:</p>
+<pre class="cmd"><code>docker compose logs -f frontend</code></pre>
+<p>Database shell:</p>
+<pre class="cmd"><code>docker exec -it jamf-ai-dashboard-postgres-1 psql -U jamfdash -d jamfdash</code></pre>
+<h2 id="9-troubleshooting-guide">9. Troubleshooting Guide</h2>
+<h3 id="91-login-fails-for-local-user">9.1 Login fails for local user</h3>
+<p>Symptoms:</p>
+<ul>
+<li>invalid username/password</li>
+<li>redirect loops to login</li>
+</ul>
+<p>Checks:</p>
+<ol>
+<li>verify backend health endpoint</li>
+<li>verify refresh cookie path and domain behavior</li>
+<li>inspect browser network calls for /auth/login and /auth/refresh</li>
+<li>check user is active in users table</li>
+</ol>
+<p>Recovery:</p>
+<ul>
+<li>perform manual password reset if needed</li>
+<li>clear stale cookies and retry</li>
+</ul>
+<h3 id="92-microsoft-sso-does-not-work">9.2 Microsoft SSO does not work</h3>
+<p>Symptoms:</p>
+<ul>
+<li>redirect error from Microsoft</li>
+<li>callback returns sso_error</li>
+<li>session not initialized after callback</li>
+</ul>
+<p>Checks:</p>
+<ol>
+<li>confirm MICROSOFT_SSO_ENABLED=true</li>
+<li>confirm client ID/secret/tenant are correct</li>
+<li>confirm MICROSOFT_REDIRECT_URI exact match in Entra app</li>
+<li>backend logs for token exchange or userinfo failures</li>
+<li>ensure frontend and backend URLs match configured origins</li>
+</ol>
+<p>Recovery:</p>
+<ul>
+<li>fix env values and restart backend/frontend</li>
+<li>retest with a fresh browser session</li>
+</ul>
+<h3 id="93-jamf-sync-fails">9.3 Jamf sync fails</h3>
+<p>Symptoms:</p>
+<ul>
+<li>sync status stuck error</li>
+<li>device/policy pages stale</li>
+</ul>
+<p>Checks:</p>
+<ol>
+<li>validate server credentials in Settings</li>
+<li>verify Jamf OAuth endpoint accessibility</li>
+<li>inspect backend logs around sync service</li>
+<li>verify database connectivity and write permissions</li>
+</ol>
+<p>Recovery:</p>
+<ul>
+<li>update server credentials</li>
+<li>run manual sync endpoint</li>
+<li>restart backend if scheduler state is corrupted</li>
+</ul>
+<h3 id="94-scripts-page-freezes-or-stretches-layout">9.4 Scripts page freezes or stretches layout</h3>
+<p>Symptoms:</p>
+<ul>
+<li>lag opening script detail</li>
+<li>horizontal overflow or stretched page</li>
+</ul>
+<p>Checks:</p>
+<ol>
+<li>ensure latest frontend build is deployed</li>
+<li>use Back to all scripts to return list mode</li>
+<li>disable code highlighting for very large scripts</li>
+</ol>
+<p>Recovery:</p>
+<ul>
+<li>rebuild frontend container</li>
+<li>hard refresh browser cache</li>
+</ul>
+<h3 id="95-knowledge-scraping-issues">9.5 Knowledge scraping issues</h3>
+<p>Symptoms:</p>
+<ul>
+<li>jobs stuck running</li>
+<li>no new sources indexed</li>
+</ul>
+<p>Checks:</p>
+<ol>
+<li>verify scraper connectivity to target domain</li>
+<li>inspect /knowledge/scrape/{job_id}/logs</li>
+<li>check Chroma and Ollama health</li>
+<li>check CPU cap is not overly restrictive</li>
+</ol>
+<p>Recovery:</p>
+<ul>
+<li>pause/resume or cancel/recreate job</li>
+<li>restart backend to recover interrupted states</li>
+</ul>
+<h3 id="96-migration-failures">9.6 Migration failures</h3>
+<p>Symptoms:</p>
+<ul>
+<li>object migration returns dependency or validation errors</li>
+</ul>
+<p>Checks:</p>
+<ol>
+<li>ensure target Jamf has required dependencies</li>
+<li>inspect returned migration error details</li>
+<li>test object fetch via /migrator/objects first</li>
+</ol>
+<p>Recovery:</p>
+<ul>
+<li>migrate prerequisite objects first</li>
+<li>retry migration in smaller batches</li>
+</ul>
+<h3 id="97-backend-startup-failures">9.7 Backend startup failures</h3>
+<p>Symptoms:</p>
+<ul>
+<li>backend container unhealthy or restarting</li>
+</ul>
+<p>Checks:</p>
+<ol>
+<li>run docker compose logs backend</li>
+<li>verify env vars and DB credentials</li>
+<li>verify Alembic can reach DB</li>
+</ol>
+<p>Recovery:</p>
+<ul>
+<li>fix env/config errors</li>
+<li>apply or repair migrations</li>
+<li>restart backend</li>
+</ul>
+<h2 id="10-security-and-compliance-notes">10. Security and Compliance Notes</h2>
+<ul>
+<li>Jamf credentials are encrypted at rest with Fernet.</li>
+<li>Refresh tokens are server-controlled and stored in Redis-backed flow.</li>
+<li>Role and permission checks gate sensitive operations.</li>
+<li>Audit logging captures auth and dashboard/server actions.</li>
+<li>For strict environments, isolate services on private networks and enforce TLS.</li>
+</ul>
+<h2 id="11-extending-the-codebase">11. Extending the Codebase</h2>
+<h3 id="111-add-a-new-backend-feature">11.1 Add a new backend feature</h3>
+<ol>
+<li>add/adjust model in backend/app/models</li>
+<li>add schema in backend/app/schemas</li>
+<li>add logic in backend/app/services</li>
+<li>add route in backend/app/routers</li>
+<li>include route in app/main.py if new router module</li>
+<li>create Alembic migration for schema changes</li>
+<li>add tests in backend/tests</li>
+</ol>
+<h3 id="112-add-a-new-frontend-page">11.2 Add a new frontend page</h3>
+<ol>
+<li>add route under frontend/src/app/(dashboard)</li>
+<li>call backend via frontend/src/lib/api.ts</li>
+<li>manage cache with React Query</li>
+<li>enforce auth via existing layout/hook patterns</li>
+<li>add nav entry in sidebar if needed</li>
+</ol>
+<h2 id="12-testing-and-validation">12. Testing and Validation</h2>
+<p>Backend quick checks:</p>
+<pre class="cmd"><code>cd backend
+python3 -m compileall app</code></pre>
+<p>Frontend build check:</p>
+<pre class="cmd"><code>cd frontend
+npm run build</code></pre>
+<p>Compose-level validation:</p>
+<pre class="cmd"><code>docker compose build backend frontend
+docker compose up -d backend frontend
+docker compose ps</code></pre>
+<h2 id="13-known-gaps-and-planned-work">13. Known Gaps and Planned Work</h2>
+<ul>
+<li>Entra group-to-local-role mapping for SSO users is planned.</li>
+<li>Auto-updater service (GitHub check + pull + rebuild + restart) is planned.</li>
+<li>Expanded automated integration test coverage is still in progress.</li>
+</ul>
+<h2 id="14-reference-links">14. Reference Links</h2>
+<ul>
+<li>API docs: http://localhost:8000/docs</li>
+<li>ReDoc: http://localhost:8000/redoc</li>
+<li>Health endpoint: http://localhost:8000/api/v1/health</li>
+<li>Metrics endpoint: http://localhost:8000/metrics</li>
+</ul>
+<hr class="nav-divider" />
+<p>If this documentation and runtime behavior diverge, treat the backend and frontend source code as authoritative, then update this file in the same change set.</p>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const links = document.querySelectorAll('.nav-link');
+      document.getElementById('navSearch').addEventListener('input', function () {
+        const q = this.value.toLowerCase().trim();
+        links.forEach(link => {
+          if (!link.getAttribute('href')?.startsWith('#')) return;
+          link.style.display = !q || link.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+      });
+    </script>
+  </body>
+</html>

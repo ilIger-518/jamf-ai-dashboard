@@ -16,5 +16,7 @@ FROM nginx:1.27-alpine
 
 # Copy the full site directory (includes hand-crafted index.html + generated api.html)
 COPY --from=builder /build/docs-static/site/ /usr/share/nginx/html/
+# Also expose the full markdown handbook so static docs include complete content.
+COPY --from=builder /build/Documentation.md /usr/share/nginx/html/Documentation.md
 
 EXPOSE 80
