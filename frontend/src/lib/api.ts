@@ -1,10 +1,18 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { useAuthStore } from "@/store/authStore";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+function resolveBaseUrl() {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) return configured;
+
+  // Default to same-origin API calls and rely on Next.js rewrites.
+  return "";
+}
+
+export const API_BASE_URL = resolveBaseUrl();
 
 export const api = axios.create({
-  baseURL: `${BASE_URL}/api/v1`,
+  baseURL: `${API_BASE_URL}/api/v1`,
   withCredentials: true, // send httpOnly refresh-token cookie
   headers: { "Content-Type": "application/json" },
 });
@@ -54,7 +62,7 @@ api.interceptors.response.use(
     try {
       // Refresh token is sent via httpOnly cookie automatically
       const { data } = await axios.post<{ access_token: string }>(
-        `${BASE_URL}/api/v1/auth/refresh`,
+        `${API_BASE_URL}/api/v1/auth/refresh`,
         {},
         { withCredentials: true },
       );

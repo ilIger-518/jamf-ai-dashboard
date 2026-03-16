@@ -40,8 +40,13 @@ export default function LoginPage() {
     try {
       await login(values.username, values.password);
       // hasHydrated will be true after login, the effect above handles the redirect.
-    } catch {
-      toast.error("Invalid username or password");
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 401) {
+        toast.error("Invalid username or password");
+      } else {
+        toast.error("Cannot reach API server. Use this server's IP and ensure backend is reachable on port 8000.");
+      }
     }
   };
 

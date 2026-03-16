@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     # ── CORS ────────────────────────────────────────────────────
     cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origin_regex: str | None = r"^https?://([a-zA-Z0-9.-]+)(:\\d+)?$"
 
     # ── Cookie ──────────────────────────────────────────────────
     cookie_secure: bool = False  # set True in production (requires HTTPS)

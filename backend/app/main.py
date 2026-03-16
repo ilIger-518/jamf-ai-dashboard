@@ -3,6 +3,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import uuid
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,11 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from sqlalchemy import update
+from sqlalchemy import select
 
 from app.cache import close_redis, get_redis
 from app.config import get_settings
 from app.database import AsyncSessionLocal, engine
 from app.models.scrape_job import ScrapeJob
+from app.models.user import User
 from app.routers import (
     ai,
     assets,
@@ -24,6 +27,7 @@ from app.routers import (
     devices,
     health,
     knowledge,
+    logs,
     migrator,
     patches,
     policies,
@@ -32,6 +36,8 @@ from app.routers import (
     users,
 )
 from app.services.jamf.sync import sync_all_servers
+from app.services.auth import AuthService
+from app.services.dashboard_logs import write_dashboard_log
 
 logger = structlog.get_logger(__name__)
 
@@ -109,6 +115,7 @@ def create_app() -> FastAPI:
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
+        allow_origin_regex=settings.cors_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -131,6 +138,60 @@ def create_app() -> FastAPI:
             },
         )
 
+    @application.middleware("http")
+    async def dashboard_audit_middleware(request: Request, call_next):
+        response = await call_next(request)
+
+        path = request.url.path
+        if path in {"/api/v1/health", "/metrics", "/docs", "/openapi.json", "/redoc"}:
+            return response
+        if path.startswith("/api/v1/logs"):
+            return response
+        if request.method == "OPTIONS":
+            return response
+
+        category = "action"
+        if path.startswith("/api/v1/servers"):
+            category = "server"
+        elif path.startswith("/api/v1/auth"):
+            category = "login"
+
+        user_id = None
+        username = None
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+            payload = AuthService._decode_token(token)
+            if payload and payload.get("type") == "access":
+                try:
+                    uid = payload.get("sub")
+                    if uid:
+                        parsed_uid = uuid.UUID(uid)
+                        async with AsyncSessionLocal() as db:
+                            user = (
+                                await db.execute(select(User).where(User.id == parsed_uid))
+                            ).scalar_one_or_none()
+                            if user:
+                                user_id = user.id
+                                username = user.username
+                except Exception:
+                    pass
+
+        await write_dashboard_log(
+            category=category,
+            action=f"{request.method} {path}",
+            message=f"{request.method} {path} -> {response.status_code}",
+            method=request.method,
+            path=path,
+            status_code=response.status_code,
+            user_id=user_id,
+            username=username,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+            details={"query": dict(request.query_params)},
+        )
+        return response
+
     # ── Routers ───────────────────────────────────────────────
     API_PREFIX = "/api/v1"
     application.include_router(health.router, prefix=API_PREFIX)
@@ -143,6 +204,7 @@ def create_app() -> FastAPI:
     application.include_router(dashboard.router, prefix=API_PREFIX)
     application.include_router(assets.router, prefix=API_PREFIX)
     application.include_router(knowledge.router, prefix=API_PREFIX)
+    application.include_router(logs.router, prefix=API_PREFIX)
     application.include_router(migrator.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
     application.include_router(ai.router, prefix=API_PREFIX)

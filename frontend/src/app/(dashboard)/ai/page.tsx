@@ -17,7 +17,7 @@ import {
   Check,
   X,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, API_BASE_URL } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
 
@@ -135,8 +135,7 @@ export default function AiAssistantPage() {
 
   // ---- Send message (streaming) ----
   const sendStreamMessage = async (message: string, signal: AbortSignal) => {
-    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-    const response = await fetch(`${base}/api/v1/ai/chat/stream`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/ai/chat/stream`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -9,9 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Scrape job runtime controls in Knowledge Base: pause, resume, cancel, and CPU cap modes (`total` and Linux-style `core` percent)
+- Persistent per-job scrape logs with live log viewer in the Knowledge page
+- Scrape runtime diagnostics endpoint/UI for active limiter and worker state
+- Role-based access control (RBAC): roles model, permissions catalog, users/roles management APIs, and Settings UI for user/role CRUD
+- AI bot split in dashboard chat: `RAG Read-Only` and `Policy & Group Builder`
+- Streaming AI chat endpoint with stage events and incremental delta output
+- Write-action approval workflow in AI builder: preview command + explicit `approve`/`cancel` before execution
+- Quick `Approve` / `Cancel` action buttons in AI chat composer when a pending preview is detected
+- Password self-service: authenticated `change-password` API and Settings "My Password" form
+- Network diagnostics page at `/debug/network` for client-side API reachability checks
 
 ### Changed
 - Refreshed project documentation across `README.md`, `Documentation.md`, and `frontend/README.md` to match current architecture and feature set
+- AI builder expanded from policy-only operations to support group and script creation flows
+- AI responses now render progressively in chat (word-by-word style streaming)
+- Frontend API routing defaults to same-origin `/api/v1` with Next.js rewrite proxy to backend
+- Frontend login error handling now distinguishes credential failures from API reachability issues
+- Frontend container runtime config now supports backend proxying via `BACKEND_INTERNAL_URL`
+
+### Fixed
+- Startup auto-heal for interrupted scrape jobs left in `running` state after restarts
+- Login regression caused by async role lazy-loading (`MissingGreenlet`) by eager-loading user role in auth dependency
+- Migrator reliability for smart/static group detection and static member payload normalization
+- Cross-device login/API failures caused by localhost-targeted frontend API URLs
 
 ## [0.5.12] - 2026-03-13 (`468fd8f`)
 
