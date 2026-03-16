@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Reference — Jamf AI Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero hero-sm">
+      <div class="hero-inner">
+        <p class="eyebrow"><a href="index.html" class="eyebrow-link">← Docs Home</a></p>
+        <h1>API Reference</h1>
+        <p class="lead">
+          Full endpoint catalog — 57 endpoints across 10 domains,
+          all mounted under <code class="inline-code">/api/v1</code>.
+          Interactive Swagger UI is also available at
+          <code class="inline-code">:8000/docs</code>.
+        </p>
+        <div class="hero-meta">
+          <span>Backend: :8000</span>
+          <span>Swagger UI: :8000/docs</span>
+          <span>57 endpoints</span>
+        </div>
+      </div>
+      <div class="hero-orb orb-a"></div>
+      <div class="hero-orb orb-b"></div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar card">
+        <div class="nav-search-wrap">
+          <input id="navSearch" type="search" class="nav-search" placeholder="Search…" autocomplete="off" />
+        </div>
+        <nav id="sidebarNav">
+          <a href="#api-health" class="nav-link">Health</a>
+          <a href="#api-auth" class="nav-link">Auth</a>
+          <a href="#api-users-and-roles" class="nav-link">Users and roles</a>
+          <a href="#api-servers" class="nav-link">Servers</a>
+          <a href="#api-dashboard-and-inventory" class="nav-link">Dashboard and inventory</a>
+          <a href="#api-assets" class="nav-link">Assets</a>
+          <a href="#api-knowledge" class="nav-link">Knowledge</a>
+          <a href="#api-migrator" class="nav-link">Migrator</a>
+          <a href="#api-ai" class="nav-link">AI</a>
+          <a href="#api-logs" class="nav-link">Logs</a>
+          <hr class="nav-divider" />
+          <a href="index.html" class="nav-link nav-link-accent">← Docs Home</a>
+        </nav>
+      </aside>
+
+      <section class="content" id="mainContent">
+        <article id="api-health" class="card section api-section">
+          <div class="section-head">
+            <h2>Health</h2>
+            <p>1 endpoint &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/health</code>
+            <span class="ep-desc">Returns 200 if the backend is alive</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-auth" class="card section api-section">
+          <div class="section-head">
+            <h2>Auth</h2>
+            <p>8 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/auth/register</code>
+            <span class="ep-desc">Register a new local user account</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/auth/login</code>
+            <span class="ep-desc">Authenticate with username/password — returns access token and sets refresh cookie</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/auth/refresh</code>
+            <span class="ep-desc">Exchange refresh cookie for a fresh access token</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/auth/logout</code>
+            <span class="ep-desc">Invalidate the refresh token and clear the cookie</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/auth/me</code>
+            <span class="ep-desc">Return current authenticated user info</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/auth/change-password</code>
+            <span class="ep-desc">Change password for the currently authenticated user</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/auth/sso/microsoft/start</code>
+            <span class="ep-desc">Initiate Microsoft OIDC authorization flow</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/auth/sso/microsoft/callback</code>
+            <span class="ep-desc">Complete Microsoft OIDC exchange and issue session cookie</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-users-and-roles" class="card section api-section">
+          <div class="section-head">
+            <h2>Users and roles</h2>
+            <p>9 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/users</code>
+            <span class="ep-desc">List all users (admin only)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/users</code>
+            <span class="ep-desc">Create a new local user (admin only)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-patch">PATCH</span>
+            <code class="ep-path">/api/v1/users/{user_id}</code>
+            <span class="ep-desc">Update a user's profile or role assignment (admin only)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-delete">DELETE</span>
+            <code class="ep-path">/api/v1/users/{user_id}</code>
+            <span class="ep-desc">Delete a user (admin only)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/users/roles</code>
+            <span class="ep-desc">List all roles</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/users/roles</code>
+            <span class="ep-desc">Create a role (admin only)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-patch">PATCH</span>
+            <code class="ep-path">/api/v1/users/roles/{role_id}</code>
+            <span class="ep-desc">Update a role (admin only)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-delete">DELETE</span>
+            <code class="ep-path">/api/v1/users/roles/{role_id}</code>
+            <span class="ep-desc">Delete a role (admin only)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/users/permissions</code>
+            <span class="ep-desc">List all available permission identifiers</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-servers" class="card section api-section">
+          <div class="section-head">
+            <h2>Servers</h2>
+            <p>8 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/servers</code>
+            <span class="ep-desc">List all configured Jamf server entries</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/servers</code>
+            <span class="ep-desc">Add a new Jamf server configuration</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-patch">PATCH</span>
+            <code class="ep-path">/api/v1/servers/{server_id}</code>
+            <span class="ep-desc">Update server credentials or metadata</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-delete">DELETE</span>
+            <code class="ep-path">/api/v1/servers/{server_id}</code>
+            <span class="ep-desc">Remove a Jamf server config</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/servers/provision</code>
+            <span class="ep-desc">Run provisioning flow for a server (credentials and role setup)</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/servers/{server_id}/sync</code>
+            <span class="ep-desc">Trigger manual data sync for one server</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/servers/sync-all</code>
+            <span class="ep-desc">Trigger data sync across all configured servers</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/servers/{server_id}/sync/status</code>
+            <span class="ep-desc">Check last sync time and result for a server</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-dashboard-and-inventory" class="card section api-section">
+          <div class="section-head">
+            <h2>Dashboard and inventory</h2>
+            <p>9 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/dashboard/stats</code>
+            <span class="ep-desc">Aggregate counts: devices, policies, smart groups, patches</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/devices</code>
+            <span class="ep-desc">List managed devices with optional server filter and pagination</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/devices/{device_id}</code>
+            <span class="ep-desc">Get full device inventory record</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/policies</code>
+            <span class="ep-desc">List Jamf policies</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/policies/{policy_id}</code>
+            <span class="ep-desc">Get policy detail</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/smart-groups</code>
+            <span class="ep-desc">List smart groups</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/smart-groups/{group_id}</code>
+            <span class="ep-desc">Get smart group membership and criteria</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/patches</code>
+            <span class="ep-desc">List patch management titles</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/patches/{patch_id}</code>
+            <span class="ep-desc">Get patch title detail</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-assets" class="card section api-section">
+          <div class="section-head">
+            <h2>Assets</h2>
+            <p>3 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/assets/scripts</code>
+            <span class="ep-desc">List scripts from the selected Jamf server</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/assets/scripts/{script_id}</code>
+            <span class="ep-desc">Full script content, parameters, and Jamf deep link</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/assets/packages</code>
+            <span class="ep-desc">List packages from the selected Jamf server</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-knowledge" class="card section api-section">
+          <div class="section-head">
+            <h2>Knowledge</h2>
+            <p>10 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/knowledge/scrape</code>
+            <span class="ep-desc">Create a scrape job from a URL or domain</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/knowledge/scrape</code>
+            <span class="ep-desc">List all scrape jobs</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/knowledge/scrape/system</code>
+            <span class="ep-desc">System-level scrape overview and stats</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/knowledge/scrape/{job_id}</code>
+            <span class="ep-desc">Get detail for a specific scrape job</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/knowledge/scrape/{job_id}/logs</code>
+            <span class="ep-desc">Retrieve logs from a scrape job</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/knowledge/scrape/{job_id}/runtime</code>
+            <span class="ep-desc">Live CPU/memory/progress of a running job</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-patch">PATCH</span>
+            <code class="ep-path">/api/v1/knowledge/scrape/{job_id}</code>
+            <span class="ep-desc">Pause, resume, or cancel a running scrape job</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-delete">DELETE</span>
+            <code class="ep-path">/api/v1/knowledge/scrape/{job_id}</code>
+            <span class="ep-desc">Delete a scrape job record</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/knowledge/sources</code>
+            <span class="ep-desc">List ingested knowledge sources in the vector store</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-delete">DELETE</span>
+            <code class="ep-path">/api/v1/knowledge/sources/{source_id}</code>
+            <span class="ep-desc">Remove a knowledge source from ChromaDB</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-migrator" class="card section api-section">
+          <div class="section-head">
+            <h2>Migrator</h2>
+            <p>2 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/migrator/objects</code>
+            <span class="ep-desc">List migratable objects from the source Jamf server</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/migrator/migrate</code>
+            <span class="ep-desc">Execute a migration of selected objects to the target server</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-ai" class="card section api-section">
+          <div class="section-head">
+            <h2>AI</h2>
+            <p>6 endpoints &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/ai/sessions</code>
+            <span class="ep-desc">List AI chat sessions for the current user</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/ai/sessions</code>
+            <span class="ep-desc">Create a new AI chat session</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-delete">DELETE</span>
+            <code class="ep-path">/api/v1/ai/sessions/{session_id}</code>
+            <span class="ep-desc">Delete a session and its full message history</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/ai/sessions/{session_id}/messages</code>
+            <span class="ep-desc">Retrieve message history for a session</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/ai/chat</code>
+            <span class="ep-desc">Send a message and receive an AI-generated response</span>
+          </div>
+          <div class="ep-card">
+            <span class="badge badge-post">POST</span>
+            <code class="ep-path">/api/v1/ai/chat/stream</code>
+            <span class="ep-desc">Send a message and stream the AI response via SSE</span>
+          </div>
+          </div>
+        </article>
+        <article id="api-logs" class="card section api-section">
+          <div class="section-head">
+            <h2>Logs</h2>
+            <p>1 endpoint &mdash; all paths prefixed with <code class="inline-code">/api/v1</code></p>
+          </div>
+          <div class="ep-list">
+          <div class="ep-card">
+            <span class="badge badge-get">GET</span>
+            <code class="ep-path">/api/v1/logs</code>
+            <span class="ep-desc">List audit log entries — supports ?category= and ?limit= filters</span>
+          </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      // ── Active link via Intersection Observer ──────────────────────
+      const sections = document.querySelectorAll('.api-section');
+      const links    = document.querySelectorAll('.nav-link');
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            links.forEach(l => l.classList.remove('active'));
+            const active = document.querySelector(`.nav-link[href="#${e.target.id}"]`);
+            if (active) active.classList.add('active');
+          }
+        });
+      }, { rootMargin: '-20% 0px -70% 0px' });
+      sections.forEach(s => observer.observe(s));
+
+      // ── Search filter (sections + nav + endpoint paths) ───────────────
+      document.getElementById('navSearch').addEventListener('input', function () {
+        const q = this.value.toLowerCase().trim();
+        links.forEach(link => {
+          if (!link.getAttribute('href')?.startsWith('#')) return;
+          link.style.display = !q || link.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+        sections.forEach(sec => {
+          const heading = sec.querySelector('h2')?.textContent.toLowerCase() || '';
+          const paths = [...sec.querySelectorAll('.ep-path')].map(c => c.textContent.toLowerCase()).join(' ');
+          const descs = [...sec.querySelectorAll('.ep-desc')].map(c => c.textContent.toLowerCase()).join(' ');
+          sec.style.display = !q || heading.includes(q) || paths.includes(q) || descs.includes(q) ? '' : 'none';
+        });
+      });
+    </script>
+  </body>
+</html>

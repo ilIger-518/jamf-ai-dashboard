@@ -2,6 +2,65 @@
 
 Version: workspace snapshot (March 2026)
 
+---
+
+## Table of Contents
+
+- [1. Purpose and Scope](#1-purpose-and-scope)
+- [2. High-Level Architecture](#2-high-level-architecture)
+  - [2.1 Components](#21-components)
+  - [2.2 Data and request flow](#22-data-and-request-flow)
+  - [2.3 Runtime orchestration](#23-runtime-orchestration)
+- [3. Repository Structure](#3-repository-structure)
+- [4. Core Features and How They Work](#4-core-features-and-how-they-work)
+  - [4.1 Authentication and authorization](#41-authentication-and-authorization)
+  - [4.2 Microsoft SSO flow (new)](#42-microsoft-sso-flow-new)
+  - [4.3 Jamf server management](#43-jamf-server-management)
+  - [4.4 Fleet data pages](#44-fleet-data-pages)
+  - [4.5 Scripts and Packages assets](#45-scripts-and-packages-assets)
+  - [4.6 Knowledge base and scraping](#46-knowledge-base-and-scraping)
+  - [4.7 AI assistant](#47-ai-assistant)
+- [5. API Catalog](#5-api-catalog)
+  - [5.1 Health](#51-health)
+  - [5.2 Auth](#52-auth)
+  - [5.3 Users and roles](#53-users-and-roles)
+  - [5.4 Servers](#54-servers)
+  - [5.5 Dashboard and inventory](#55-dashboard-and-inventory)
+  - [5.6 Assets](#56-assets)
+  - [5.7 Knowledge](#57-knowledge)
+  - [5.8 Migrator](#58-migrator)
+  - [5.9 AI](#59-ai)
+  - [5.10 Logs](#510-logs)
+- [6. Configuration Reference](#6-configuration-reference)
+  - [6.1 Required baseline variables](#61-required-baseline-variables)
+  - [6.2 Microsoft SSO variables](#62-microsoft-sso-variables)
+  - [6.3 Cookie and security variables](#63-cookie-and-security-variables)
+- [7. Setup and Deployment Procedures](#7-setup-and-deployment-procedures)
+  - [7.1 Fresh local setup](#71-fresh-local-setup)
+  - [7.2 Rebuild and redeploy app services](#72-rebuild-and-redeploy-app-services)
+  - [7.3 Migrations and schema changes](#73-migrations-and-schema-changes)
+  - [7.4 Production hardening checklist](#74-production-hardening-checklist)
+- [8. Day-2 Operations](#8-day-2-operations)
+  - [8.1 Routine checks](#81-routine-checks)
+  - [8.2 Useful commands](#82-useful-commands)
+- [9. Troubleshooting Guide](#9-troubleshooting-guide)
+  - [9.1 Login fails for local user](#91-login-fails-for-local-user)
+  - [9.2 Microsoft SSO does not work](#92-microsoft-sso-does-not-work)
+  - [9.3 Jamf sync fails](#93-jamf-sync-fails)
+  - [9.4 Scripts page freezes or stretches layout](#94-scripts-page-freezes-or-stretches-layout)
+  - [9.5 Knowledge scraping issues](#95-knowledge-scraping-issues)
+  - [9.6 Migration failures](#96-migration-failures)
+  - [9.7 Backend startup failures](#97-backend-startup-failures)
+- [10. Security and Compliance Notes](#10-security-and-compliance-notes)
+- [11. Extending the Codebase](#11-extending-the-codebase)
+  - [11.1 Add a new backend feature](#111-add-a-new-backend-feature)
+  - [11.2 Add a new frontend page](#112-add-a-new-frontend-page)
+- [12. Testing and Validation](#12-testing-and-validation)
+- [13. Known Gaps and Planned Work](#13-known-gaps-and-planned-work)
+- [14. Reference Links](#14-reference-links)
+
+---
+
 ## 1. Purpose and Scope
 
 Jamf AI Dashboard is a self-hosted operations platform for Jamf Pro environments.

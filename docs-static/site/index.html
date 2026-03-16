@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jamf AI Dashboard Docs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-inner">
+        <p class="eyebrow">Operational Handbook</p>
+        <h1>Jamf AI Dashboard</h1>
+        <p class="lead">
+          A visual, static documentation portal for architecture, runtime operations,
+          configuration, and troubleshooting.
+        </p>
+        <div class="hero-meta">
+          <span>Frontend: :3000</span>
+          <span>Backend: :8000</span>
+          <span>Docs Static: :8088</span>
+        </div>
+      </div>
+      <div class="hero-orb orb-a"></div>
+      <div class="hero-orb orb-b"></div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar card">
+        <div class="nav-search-wrap">
+          <input id="navSearch" type="search" class="nav-search" placeholder="Search sections…" autocomplete="off" />
+        </div>
+        <nav id="sidebarNav">
+          <a href="#architecture" class="nav-link">Architecture</a>
+          <a href="#flow" class="nav-link">Data Flow</a>
+          <a href="#config" class="nav-link">Configuration</a>
+          <a href="#operations" class="nav-link">Operations</a>
+          <a href="#troubleshooting" class="nav-link">Troubleshooting</a>
+          <a href="#api" class="nav-link">API Surface</a>
+          <hr class="nav-divider" />
+          <a href="api.html" class="nav-link nav-link-accent">API Reference →</a>
+        </nav>
+      </aside>
+
+      <section class="content">
+        <article id="architecture" class="card section">
+          <div class="section-head">
+            <h2>Architecture</h2>
+            <p>Core runtime components and dependencies.</p>
+          </div>
+          <svg viewBox="0 0 980 360" class="diagram" role="img" aria-label="Architecture diagram">
+            <defs>
+              <linearGradient id="g1" x1="0" x2="1">
+                <stop offset="0%" stop-color="#1d4ed8" />
+                <stop offset="100%" stop-color="#0891b2" />
+              </linearGradient>
+              <linearGradient id="g2" x1="0" x2="1">
+                <stop offset="0%" stop-color="#0f766e" />
+                <stop offset="100%" stop-color="#84cc16" />
+              </linearGradient>
+            </defs>
+            <rect x="28" y="36" width="180" height="84" rx="14" fill="url(#g1)" />
+            <text x="118" y="84" text-anchor="middle" fill="#fff" font-size="22" font-family="Space Grotesk">Browser</text>
+
+            <rect x="250" y="36" width="230" height="84" rx="14" fill="url(#g1)" />
+            <text x="365" y="84" text-anchor="middle" fill="#fff" font-size="22" font-family="Space Grotesk">Next.js Frontend</text>
+
+            <rect x="532" y="36" width="230" height="84" rx="14" fill="url(#g1)" />
+            <text x="647" y="84" text-anchor="middle" fill="#fff" font-size="22" font-family="Space Grotesk">FastAPI Backend</text>
+
+            <rect x="814" y="36" width="138" height="84" rx="14" fill="url(#g2)" />
+            <text x="883" y="84" text-anchor="middle" fill="#fff" font-size="18" font-family="Space Grotesk">Jamf Pro</text>
+
+            <rect x="250" y="188" width="180" height="84" rx="14" fill="#1e293b" />
+            <text x="340" y="236" text-anchor="middle" fill="#fff" font-size="20" font-family="Space Grotesk">PostgreSQL</text>
+
+            <rect x="460" y="188" width="130" height="84" rx="14" fill="#1e293b" />
+            <text x="525" y="236" text-anchor="middle" fill="#fff" font-size="20" font-family="Space Grotesk">Redis</text>
+
+            <rect x="620" y="188" width="150" height="84" rx="14" fill="#1e293b" />
+            <text x="695" y="236" text-anchor="middle" fill="#fff" font-size="20" font-family="Space Grotesk">ChromaDB</text>
+
+            <rect x="800" y="188" width="152" height="84" rx="14" fill="#1e293b" />
+            <text x="876" y="236" text-anchor="middle" fill="#fff" font-size="20" font-family="Space Grotesk">Ollama</text>
+
+            <line x1="208" y1="78" x2="250" y2="78" stroke="#0f172a" stroke-width="3" />
+            <line x1="480" y1="78" x2="532" y2="78" stroke="#0f172a" stroke-width="3" />
+            <line x1="762" y1="78" x2="814" y2="78" stroke="#0f172a" stroke-width="3" />
+
+            <line x1="620" y1="120" x2="620" y2="188" stroke="#0f172a" stroke-width="3" />
+            <line x1="648" y1="120" x2="700" y2="188" stroke="#0f172a" stroke-width="3" />
+            <line x1="676" y1="120" x2="876" y2="188" stroke="#0f172a" stroke-width="3" />
+            <line x1="592" y1="120" x2="340" y2="188" stroke="#0f172a" stroke-width="3" />
+          </svg>
+        </article>
+
+        <article id="flow" class="card section">
+          <div class="section-head">
+            <h2>Request and Sync Flow</h2>
+            <p>Runtime path from UI interaction to Jamf and storage.</p>
+          </div>
+          <ol class="flow-list">
+            <li>User action in dashboard page triggers API call via frontend Axios client.</li>
+            <li>Backend validates JWT and permission scope.</li>
+            <li>Backend serves local data and/or fetches live Jamf data with OAuth client credentials.</li>
+            <li>Sync jobs upsert entities into PostgreSQL and cache status in Redis.</li>
+            <li>Knowledge and AI routes use ChromaDB and Ollama for retrieval and generation.</li>
+            <li>Audit events are persisted to dashboard logs for settings visibility.</li>
+          </ol>
+        </article>
+
+        <article id="config" class="card section">
+          <div class="section-head">
+            <h2>Configuration Matrix</h2>
+            <p>Minimum required environment groups.</p>
+          </div>
+          <div class="grid-2">
+            <div class="mini-card">
+              <h3>Security and Auth</h3>
+              <p class="mono">SECRET_KEY, FERNET_KEY, JWT_ALGORITHM</p>
+              <p class="mono">ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS</p>
+              <p class="mono">MICROSOFT_SSO_ENABLED, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET</p>
+            </div>
+            <div class="mini-card">
+              <h3>Data and Runtime</h3>
+              <p class="mono">DATABASE_URL, REDIS_URL</p>
+              <p class="mono">CHROMA_HOST, CHROMA_PORT</p>
+              <p class="mono">OLLAMA_BASE_URL, OLLAMA_MODEL, EMBEDDING_MODEL_NAME</p>
+            </div>
+          </div>
+        </article>
+
+        <article id="operations" class="card section">
+          <div class="section-head">
+            <h2>Operations</h2>
+            <p>Most common commands for operators.</p>
+          </div>
+          <pre class="cmd">docker compose up -d
+
+docker compose build backend frontend
+docker compose up -d backend frontend
+
+docker compose logs -f backend
+
+docker compose exec -T backend alembic upgrade head</pre>
+        </article>
+
+        <article id="troubleshooting" class="card section">
+          <div class="section-head">
+            <h2>Troubleshooting Snapshot</h2>
+            <p>Fast triage map for common failures.</p>
+          </div>
+          <div class="grid-3">
+            <div class="alert alert-warn">
+              <h3>Login/SSO</h3>
+              <p>Verify callback URI, cookie settings, and /auth/refresh behavior.</p>
+            </div>
+            <div class="alert alert-warn">
+              <h3>Sync issues</h3>
+              <p>Check Jamf credentials, backend logs, and sync status endpoints.</p>
+            </div>
+            <div class="alert alert-warn">
+              <h3>AI issues</h3>
+              <p>Validate Ollama and Chroma health plus model availability.</p>
+            </div>
+          </div>
+        </article>
+
+        <article id="api" class="card section">
+          <div class="section-head">
+            <h2>API Surface by Domain</h2>
+            <p>Representative endpoint volume and capability.</p>
+          </div>
+          <div class="bars">
+            <div class="bar-row"><span>Auth</span><i style="--w: 68%"></i></div>
+            <div class="bar-row"><span>Servers</span><i style="--w: 82%"></i></div>
+            <div class="bar-row"><span>Knowledge</span><i style="--w: 90%"></i></div>
+            <div class="bar-row"><span>AI</span><i style="--w: 78%"></i></div>
+            <div class="bar-row"><span>Inventory</span><i style="--w: 85%"></i></div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      // ── Active link via Intersection Observer ──────────────────────
+      const sections = document.querySelectorAll('.section');
+      const links    = document.querySelectorAll('.nav-link');
+      const observer = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            links.forEach(l => l.classList.remove('active'));
+            const active = document.querySelector(`.nav-link[href="#${e.target.id}"]`);
+            if (active) active.classList.add('active');
+          }
+        });
+      }, { rootMargin: '-20% 0px -70% 0px' });
+      sections.forEach(s => observer.observe(s));
+
+      // ── Search filter ───────────────────────────────────────────────
+      document.getElementById('navSearch').addEventListener('input', function () {
+        const q = this.value.toLowerCase().trim();
+        links.forEach(link => {
+          if (!link.getAttribute('href')?.startsWith('#')) return; // keep external links
+          link.style.display = !q || link.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+        sections.forEach(sec => {
+          const heading = sec.querySelector('h2')?.textContent.toLowerCase() || '';
+          sec.style.display = !q || heading.includes(q) ? '' : 'none';
+        });
+      });
+    </script>
+  </body>
+</html>
