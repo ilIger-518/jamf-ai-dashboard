@@ -8,6 +8,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { useAuthStore } from "@/store/authStore";
+import { API_BASE_URL } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const loginSchema = z.object({
@@ -49,6 +50,8 @@ export default function LoginPage() {
       }
     }
   };
+
+  const microsoftSsoUrl = `${API_BASE_URL}/api/v1/auth/sso/microsoft/start`;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
@@ -133,6 +136,22 @@ export default function LoginPage() {
             {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
             {isLoading ? "Signing in…" : "Sign in"}
           </button>
+
+          <div className="relative py-1">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-white px-2 text-gray-400 dark:bg-gray-900">or</span>
+            </div>
+          </div>
+
+          <a
+            href={microsoftSsoUrl}
+            className="flex w-full items-center justify-center rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Sign in with Microsoft
+          </a>
         </form>
       </div>
     </div>

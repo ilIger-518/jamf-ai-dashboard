@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     # ── Cookie ──────────────────────────────────────────────────
     cookie_secure: bool = False  # set True in production (requires HTTPS)
 
+    # ── Microsoft SSO (OIDC) ────────────────────────────────────
+    microsoft_sso_enabled: bool = False
+    microsoft_tenant_id: str = "common"
+    microsoft_client_id: str | None = None
+    microsoft_client_secret: str | None = None
+    microsoft_redirect_uri: str = "http://localhost:8000/api/v1/auth/sso/microsoft/callback"
+    frontend_base_url: str = "http://localhost:3000"
+
     # ── Logging ─────────────────────────────────────────────────
     log_level: str = "INFO"
 
