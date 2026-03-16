@@ -19,6 +19,7 @@ import {
   RotateCw,
   Users,
   KeyRound,
+  ScrollText,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -67,6 +68,123 @@ interface ManagedUser {
 interface PermissionOption {
   key: string;
   label: string;
+}
+
+interface DashboardLogEntry {
+  id: string;
+  category: "server" | "login" | "action";
+  action: string;
+  level: string;
+  message: string;
+  method: string | null;
+  path: string | null;
+  status_code: number | null;
+  username: string | null;
+  ip_address: string | null;
+  created_at: string;
+}
+
+const LEVEL_COLORS: Record<string, string> = {
+  info: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  warning: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
+  error: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  server: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  login: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
+  action: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
+};
+
+function LogsPanel() {
+  const [category, setCategory] = useState<"all" | "server" | "login" | "action">("all");
+  const { data: logs = [], isLoading, refetch, isFetching } = useQuery<DashboardLogEntry[]>({
+    queryKey: ["logs", category],
+    queryFn: () =>
+      api
+        .get<DashboardLogEntry[]>("/logs", {
+          params: category !== "all" ? { category } : {},
+        })
+        .then((r) => r.data),
+    refetchInterval: 30_000,
+  });
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Dashboard Logs</h2>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800"
+        >
+          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+        </button>
+      </div>
+      <div className="flex gap-2 border-b border-gray-100 px-4 py-2 dark:border-gray-800">
+        {(["all", "server", "login", "action"] as const).map((c) => (
+          <button
+            key={c}
+            onClick={() => setCategory(c)}
+            className={cn(
+              "rounded px-3 py-1 text-xs font-medium capitalize",
+              category === c
+                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800",
+            )}
+          >
+            {c === "all" ? "All" : c}
+          </button>
+        ))}
+      </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+        </div>
+      ) : logs.length === 0 ? (
+        <div className="py-12 text-center text-sm text-gray-400">No logs yet.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-400">
+              <tr>
+                <th className="px-4 py-2 text-left">Time</th>
+                <th className="px-4 py-2 text-left">Category</th>
+                <th className="px-4 py-2 text-left">Level</th>
+                <th className="px-4 py-2 text-left">Action</th>
+                <th className="px-4 py-2 text-left">User</th>
+                <th className="px-4 py-2 text-left">IP</th>
+                <th className="px-4 py-2 text-left">Message</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {logs.map((log) => (
+                <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                  <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                    {new Date(log.created_at).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium capitalize", CATEGORY_COLORS[log.category] ?? "bg-gray-100 text-gray-600")}>
+                      {log.category}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium capitalize", LEVEL_COLORS[log.level] ?? "bg-gray-100 text-gray-600")}>
+                      {log.level}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">{log.action}</td>
+                  <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400">{log.username ?? "—"}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">{log.ip_address ?? "—"}</td>
+                  <td className="max-w-xs truncate px-4 py-2 text-xs text-gray-600 dark:text-gray-300" title={log.message}>{log.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const emptyForm: ServerFormValues = {
@@ -854,7 +972,7 @@ export default function SettingsPage() {
   const [showWizard, setShowWizard] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncingAll, setSyncingAll] = useState(false);
-  const [activeTab, setActiveTab] = useState<"servers" | "users">("servers");
+  const [activeTab, setActiveTab] = useState<"servers" | "users" | "logs">("servers");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -868,6 +986,7 @@ export default function SettingsPage() {
     () => [
       ...(canManageServers ? [{ key: "servers" as const, label: "Jamf Servers", icon: Server }] : []),
       ...((canManageUsers || canManageRoles) ? [{ key: "users" as const, label: "Users & Roles", icon: Users }] : []),
+      ...(canManageSettings ? [{ key: "logs" as const, label: "Logs", icon: ScrollText }] : []),
     ],
     [canManageRoles, canManageServers, canManageUsers],
   );
@@ -1146,6 +1265,8 @@ export default function SettingsPage() {
       )}
 
       {activeTab === "users" && <UsersRolesPanel canManageUsers={canManageUsers} canManageRoles={canManageRoles} />}
+
+      {activeTab === "logs" && <LogsPanel />}
 
       <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
