@@ -25,6 +25,7 @@ class MigrationRequest(BaseModel):
     object_ids: list[int] = Field(..., min_length=1)
     skip_existing: bool = True
     include_static_members: bool = False
+    migrate_dependencies: bool = False
 
     @model_validator(mode="after")
     def validate_servers_differ(self) -> "MigrationRequest":
@@ -38,6 +39,7 @@ class MigrationItemResult(BaseModel):
     name: str
     status: Literal["created", "skipped", "failed"]
     message: str | None = None
+    logs: list[str] = []
 
 
 class MigrationResponse(BaseModel):
