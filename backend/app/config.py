@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     microsoft_redirect_uri: str = "http://localhost:8000/api/v1/auth/sso/microsoft/callback"
     frontend_base_url: str = "http://localhost:3000"
 
+    # ── Auto-updater ─────────────────────────────────────────────
+    updater_url: str = "http://updater:8089"
+
     # ── Logging ─────────────────────────────────────────────────
     log_level: str = "INFO"
 

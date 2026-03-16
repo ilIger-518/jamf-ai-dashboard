@@ -122,6 +122,37 @@ services:
       retries: 5
 
   # ── Static documentation portal ──────────────────────────────
+  # ── Auto-updater service ──────────────────────────────────────
+  updater:
+    build:
+      context: ./updater
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PROJECT_DIR: /project
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CHECK_INTERVAL_MINUTES: ${UPDATE_CHECK_INTERVAL_MINUTES:-60}
+      AUTO_UPDATE_ENABLED: ${AUTO_UPDATE_ENABLED:-false}
+      HEALTH_URL: http://backend:8000/api/v1/health
+      ROLLBACK_TIMEOUT_SECONDS: ${ROLLBACK_TIMEOUT_SECONDS:-90}
+      UPDATE_SERVICES: backend frontend
+    volumes:
+      - .:/project
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "8089"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Static documentation portal ──────────────────────────────
   docs-static:
     build:
       context: .

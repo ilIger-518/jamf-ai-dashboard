@@ -33,6 +33,7 @@ from app.routers import (
     policies,
     servers,
     smart_groups,
+    system,
     users,
 )
 from app.services.jamf.sync import sync_all_servers
@@ -208,6 +209,8 @@ def create_app() -> FastAPI:
     application.include_router(migrator.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
     application.include_router(ai.router, prefix=API_PREFIX)
+
+    application.include_router(system.router, prefix=API_PREFIX)
 
     return application
 

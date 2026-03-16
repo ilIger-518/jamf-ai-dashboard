@@ -708,6 +708,9 @@
 - [ ] Add auto-updater service: poll GitHub repo for new commits/tags on configured branch
 - [ ] Auto-updater workflow: pull latest code, run safety checks, then run `docker compose build` + `docker compose up -d`
 - [ ] Add rollback guard for updater (keep previous image tag and revert automatically on failed health checks)
+- [x] Add auto-updater service: poll GitHub repo for new commits/tags on configured branch
+- [x] Auto-updater workflow: pull latest code, run safety checks, then run `docker compose build` + `docker compose up -d`
+- [x] Add rollback guard for updater (keep previous image tag and revert automatically on failed health checks)
 
 ---
 

@@ -20,6 +20,9 @@ import {
   Users,
   KeyRound,
   ScrollText,
+  ArrowUpCircle,
+  CheckCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -95,6 +98,366 @@ const CATEGORY_COLORS: Record<string, string> = {
   login: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
   action: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
 };
+
+interface UpdateStatusData {
+  current_commit: string;
+  latest_commit: string;
+  current_version: string | null;
+  latest_version: string | null;
+  repo_url: string;
+  branch: string;
+  commit_graph: {
+    sha: string;
+    message: string;
+    author: string;
+    date: string | null;
+    is_current: boolean;
+    is_latest: boolean;
+    is_behind_path: boolean;
+  }[];
+  update_available: boolean;
+  last_checked: string | null;
+  update_in_progress: boolean;
+  last_update_result: string | null;
+  last_update_at: string | null;
+  log: string[];
+}
+
+function UpdatesPanel() {
+  const qc = useQueryClient();
+  const [repoUrl, setRepoUrl] = useState("");
+  const [branch, setBranch] = useState("main");
+  const [isConfigDirty, setIsConfigDirty] = useState(false);
+
+  const { data: status, isLoading, error } = useQuery<UpdateStatusData>({
+    queryKey: ["system", "update-status"],
+    queryFn: () => api.get<UpdateStatusData>("/system/update/status").then((r) => r.data),
+    refetchInterval: 10_000,
+    retry: false,
+  });
+
+  const checkMutation = useMutation({
+    mutationFn: () => api.post("/system/update/check").then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["system", "update-status"] }),
+    onError: () => toast.error("Check failed — updater may be unavailable"),
+  });
+
+  const saveConfigMutation = useMutation({
+    mutationFn: () =>
+      api
+        .post("/system/update/config", {
+          repo_url: repoUrl.trim(),
+          branch: branch.trim() || "main",
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      setIsConfigDirty(false);
+      toast.success("Update source saved");
+      qc.invalidateQueries({ queryKey: ["system", "update-status"] });
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      toast.error(detail || "Failed to save update source");
+    },
+  });
+
+  const applyMutation = useMutation({
+    mutationFn: () => api.post("/system/update/apply").then((r) => r.data),
+    onSuccess: (data: { ok: boolean; message: string }) => {
+      if (data.ok) toast.success(data.message);
+      else toast.error(data.message);
+      qc.invalidateQueries({ queryKey: ["system", "update-status"] });
+    },
+    onError: () => toast.error("Apply failed — updater may be unavailable"),
+  });
+
+  useEffect(() => {
+    if (!status || isConfigDirty) return;
+    setRepoUrl(status.repo_url || "");
+    setBranch(status.branch || "main");
+  }, [status, isConfigDirty]);
+
+  if (error) {
+    const errorStatus = (error as { response?: { status?: number } })?.response?.status;
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+        {errorStatus === 401 || errorStatus === 403 ? (
+          <>
+            <p className="font-medium">Insufficient permissions</p>
+            <p className="mt-1 text-xs opacity-80">Only admin users can query updater status and apply updates.</p>
+          </>
+        ) : (
+          <>
+            <p className="font-medium">Updater service unavailable</p>
+            <p className="mt-1 text-xs opacity-80">Start the updater container or check docker compose logs.</p>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  const resultBadge = status?.last_update_result;
+  const commitBaseUrl = status?.repo_url ? `${status.repo_url.replace(/\/$/, "")}/commit` : "";
+
+  return (
+    <div className="space-y-4">
+      {/* Status card */}
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <ArrowUpCircle className="h-4 w-4 text-gray-500" />
+            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Software Updates</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => checkMutation.mutate()}
+              disabled={checkMutation.isPending || isLoading || !!status?.update_in_progress}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", checkMutation.isPending && "animate-spin")} />
+              Check now
+            </button>
+            {status?.update_available && (
+              <button
+                onClick={() => applyMutation.mutate()}
+                disabled={applyMutation.isPending || !!status?.update_in_progress}
+                className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+              >
+                <ArrowUpCircle className={cn("h-3.5 w-3.5", applyMutation.isPending && "animate-spin")} />
+                {status?.update_in_progress ? "Updating…" : "Apply update"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-0 divide-x divide-gray-100 dark:divide-gray-800 sm:grid-cols-4">
+            {[
+              { label: "Current", value: status?.current_commit || "—" },
+              { label: "Latest", value: status?.latest_commit || "—" },
+              {
+                label: "Status",
+                value: status?.update_in_progress
+                  ? "Updating…"
+                  : status?.update_available
+                    ? "Update available"
+                    : "Up to date",
+                accent: status?.update_in_progress
+                  ? "text-blue-600 dark:text-blue-400"
+                  : status?.update_available
+                    ? "text-amber-600 dark:text-amber-400 font-semibold"
+                    : "text-green-600 dark:text-green-400",
+              },
+              {
+                label: "Last checked",
+                value: status?.last_checked
+                  ? new Date(status.last_checked).toLocaleTimeString()
+                  : "—",
+              },
+            ].map(({ label, value, accent }) => (
+              <div key={label} className="px-4 py-3">
+                <p className="text-xs text-gray-400 dark:text-gray-500">{label}</p>
+                <p className={cn("mt-0.5 font-mono text-sm text-gray-800 dark:text-gray-200", accent)}>
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {resultBadge && (
+          <div className={cn(
+            "flex items-center gap-2 border-t px-4 py-2 text-xs",
+            resultBadge === "success"
+              ? "border-green-100 bg-green-50 text-green-700 dark:border-green-900/40 dark:bg-green-900/20 dark:text-green-300"
+              : "border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300",
+          )}>
+            {resultBadge === "success"
+              ? <CheckCheck className="h-3.5 w-3.5 shrink-0" />
+              : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
+            Last update result: <strong className="ml-0.5">{resultBadge}</strong>
+            {status?.last_update_at && (
+              <span className="ml-auto opacity-70">{new Date(status.last_update_at).toLocaleString()}</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Repo config */}
+      <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Repository Source</h3>
+          <button
+            onClick={() => saveConfigMutation.mutate()}
+            disabled={!isConfigDirty || saveConfigMutation.isPending || !!status?.update_in_progress}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saveConfigMutation.isPending ? "Saving…" : "Save source"}
+          </button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
+          <label className="text-xs text-gray-500 dark:text-gray-400">
+            Repo URL
+            <input
+              value={repoUrl}
+              onChange={(e) => {
+                setRepoUrl(e.target.value);
+                setIsConfigDirty(true);
+              }}
+              placeholder="https://github.com/owner/repo"
+              className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+            />
+          </label>
+          <label className="text-xs text-gray-500 dark:text-gray-400">
+            Branch
+            <input
+              value={branch}
+              onChange={(e) => {
+                setBranch(e.target.value);
+                setIsConfigDirty(true);
+              }}
+              placeholder="main"
+              className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Version + commit graph */}
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Version Graph</h3>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 border-b border-gray-100 px-4 py-3 text-xs text-gray-600 dark:border-gray-800 dark:text-gray-300 sm:grid-cols-2">
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900/40">
+            <p className="text-gray-500 dark:text-gray-400">Current version</p>
+            <p className="mt-1 font-mono text-sm">{status?.current_version || "No tag"}</p>
+            <p className="mt-0.5 font-mono text-[11px] opacity-75">
+              {commitBaseUrl && status?.current_commit ? (
+                <a
+                  href={`${commitBaseUrl}/${status.current_commit}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-dotted hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  {status.current_commit}
+                </a>
+              ) : (
+                status?.current_commit || "—"
+              )}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900/40">
+            <p className="text-gray-500 dark:text-gray-400">Latest version</p>
+            <p className="mt-1 font-mono text-sm">{status?.latest_version || "No release tag"}</p>
+            <p className="mt-0.5 font-mono text-[11px] opacity-75">
+              {commitBaseUrl && status?.latest_commit ? (
+                <a
+                  href={`${commitBaseUrl}/${status.latest_commit}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-dotted hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  {status.latest_commit}
+                </a>
+              ) : (
+                status?.latest_commit || "—"
+              )}
+            </p>
+          </div>
+        </div>
+
+        {status?.commit_graph?.length ? (
+          <ol className="space-y-0 px-4 py-3">
+            {status.commit_graph.map((commit, idx) => {
+              const nodeClass = commit.is_latest
+                ? "bg-green-500"
+                : commit.is_current
+                  ? "bg-blue-500"
+                  : commit.is_behind_path
+                    ? "bg-amber-500"
+                    : "bg-gray-300 dark:bg-gray-600";
+              return (
+                <li key={`${commit.sha}-${idx}`} className="relative pl-7 pb-4 last:pb-0">
+                  {idx < status.commit_graph.length - 1 && (
+                    <span className="absolute left-[11px] top-4 h-[calc(100%-0.25rem)] w-px bg-gray-200 dark:bg-gray-700" />
+                  )}
+                  <span className={cn("absolute left-2 top-1.5 h-2.5 w-2.5 rounded-full", nodeClass)} />
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 dark:border-gray-800 dark:bg-gray-900/30">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {commitBaseUrl && commit.sha ? (
+                        <a
+                          href={`${commitBaseUrl}/${commit.sha}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-[11px] text-gray-500 underline decoration-dotted hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
+                        >
+                          {commit.sha}
+                        </a>
+                      ) : (
+                        <span className="font-mono text-[11px] text-gray-500 dark:text-gray-400">{commit.sha || "—"}</span>
+                      )}
+                      {commit.is_current && (
+                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                          Current
+                        </span>
+                      )}
+                      {commit.is_latest && (
+                        <span className="rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                          Latest
+                        </span>
+                      )}
+                      {!commit.is_current && !commit.is_latest && commit.is_behind_path && (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                          Between
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-700 dark:text-gray-200">{commit.message || "No message"}</p>
+                    <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                      {commit.author || "unknown"}
+                      {commit.date ? ` • ${new Date(commit.date).toLocaleString()}` : ""}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        ) : (
+          <p className="px-4 py-4 text-xs text-gray-500 dark:text-gray-400">
+            No commit graph data available yet. Save a GitHub repo URL and run Check now.
+          </p>
+        )}
+      </div>
+
+      {/* Update log */}
+      {status && status.log.length > 0 && (
+        <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+          <div className="border-b border-gray-200 px-4 py-2 dark:border-gray-700">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Update log</p>
+          </div>
+          <pre className="max-h-72 overflow-y-auto p-4 font-mono text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+            {status.log.join("\n")}
+          </pre>
+        </div>
+      )}
+
+      {/* Config reminder */}
+      <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300">
+        <p className="mb-1 font-medium">Configuration</p>
+        <p>
+          You can save the source repo above (URL or owner/repo) and use Check now to refresh.
+          Set <code className="rounded bg-blue-100 px-1 dark:bg-blue-900/40">AUTO_UPDATE_ENABLED=true</code> for automated updates.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function LogsPanel() {
   const [category, setCategory] = useState<"all" | "server" | "login" | "action">("all");
@@ -972,7 +1335,7 @@ export default function SettingsPage() {
   const [showWizard, setShowWizard] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncingAll, setSyncingAll] = useState(false);
-  const [activeTab, setActiveTab] = useState<"servers" | "users" | "logs">("servers");
+  const [activeTab, setActiveTab] = useState<"servers" | "users" | "logs" | "updates">("servers");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -982,13 +1345,15 @@ export default function SettingsPage() {
   const canManageServers = permissions.includes("servers.manage") || permissions.includes("servers.sync") || !!user?.is_admin;
   const canManageUsers = permissions.includes("users.manage") || !!user?.is_admin;
   const canManageRoles = permissions.includes("roles.manage") || !!user?.is_admin;
+  const canAccessUpdates = canManageSettings || canManageServers || !!user?.is_admin;
   const tabs = useMemo(
     () => [
       ...(canManageServers ? [{ key: "servers" as const, label: "Jamf Servers", icon: Server }] : []),
       ...((canManageUsers || canManageRoles) ? [{ key: "users" as const, label: "Users & Roles", icon: Users }] : []),
       ...(canManageSettings ? [{ key: "logs" as const, label: "Logs", icon: ScrollText }] : []),
+      ...(canAccessUpdates ? [{ key: "updates" as const, label: "Updates", icon: ArrowUpCircle }] : []),
     ],
-    [canManageRoles, canManageServers, canManageUsers],
+    [canAccessUpdates, canManageRoles, canManageServers, canManageSettings, canManageUsers],
   );
 
   useEffect(() => {
@@ -1118,11 +1483,7 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {!canManageSettings ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-          Your account does not have permission to access settings.
-        </div>
-      ) : tabs.length === 0 ? (
+      {tabs.length === 0 ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
           Your role can open Settings, but it does not currently grant any management actions.
         </div>
@@ -1267,6 +1628,8 @@ export default function SettingsPage() {
       {activeTab === "users" && <UsersRolesPanel canManageUsers={canManageUsers} canManageRoles={canManageRoles} />}
 
       {activeTab === "logs" && <LogsPanel />}
+
+      {activeTab === "updates" && canAccessUpdates && <UpdatesPanel />}
 
       <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">

@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, User, Server } from "lucide-react";
+import { LogOut, User, Server, ArrowUpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
@@ -9,6 +9,7 @@ import { useUiStore } from "@/store/uiStore";
 import { api } from "@/lib/api";
 
 interface JamfServer { id: string; name: string; }
+interface UpdateStatus { update_available: boolean; latest_commit: string; }
 
 export function TopNav() {
   const router = useRouter();
@@ -19,6 +20,15 @@ export function TopNav() {
     queryKey: ["servers"],
     queryFn: () => api.get<JamfServer[]>("/servers").then((r) => r.data),
     staleTime: 60_000,
+  });
+
+  const { data: updateStatus } = useQuery<UpdateStatus>({
+    queryKey: ["system", "update-status"],
+    queryFn: () =>
+      api.get<UpdateStatus>("/system/update/status").then((r) => r.data),
+    enabled: !!user?.is_admin,
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 
   const selectedName = selectedServerId
@@ -45,6 +55,16 @@ export function TopNav() {
       </div>
 
       <div className="flex items-center gap-3">
+        {user?.is_admin && updateStatus?.update_available && (
+          <button
+            onClick={() => router.push("/settings")}
+            title={`Update available: ${updateStatus.latest_commit}`}
+            className="flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-900/60 transition"
+          >
+            <ArrowUpCircle className="h-3.5 w-3.5" />
+            Update available
+          </button>
+        )}
         {user && (
           <span className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">
             <User className="h-4 w-4" />
