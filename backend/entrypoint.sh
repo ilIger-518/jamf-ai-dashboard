@@ -3,6 +3,9 @@
 
 set -e
 
+# Ensure local application package is always importable for alembic/uvicorn.
+export PYTHONPATH="/app:${PYTHONPATH}"
+
 echo "Running Alembic migrations..."
 alembic upgrade head
 
