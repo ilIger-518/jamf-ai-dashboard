@@ -19,10 +19,17 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "knowledge_documents",
-        sa.Column("size_bytes", sa.Integer(), nullable=False, server_default="0"),
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "knowledge_documents" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("knowledge_documents")}
+    if "size_bytes" not in columns:
+        op.add_column(
+            "knowledge_documents",
+            sa.Column("size_bytes", sa.Integer(), nullable=False, server_default="0"),
+        )
 
 
 def downgrade() -> None:

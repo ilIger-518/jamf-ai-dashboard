@@ -19,22 +19,33 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "scrape_jobs",
-        sa.Column("pause_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-    )
-    op.add_column(
-        "scrape_jobs",
-        sa.Column("cancel_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-    )
-    op.add_column(
-        "scrape_jobs",
-        sa.Column("cpu_cap_mode", sa.String(length=16), nullable=False, server_default="total"),
-    )
-    op.add_column(
-        "scrape_jobs",
-        sa.Column("cpu_cap_percent", sa.Integer(), nullable=False, server_default="100"),
-    )
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    if "scrape_jobs" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("scrape_jobs")}
+
+    if "pause_requested" not in columns:
+        op.add_column(
+            "scrape_jobs",
+            sa.Column("pause_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        )
+    if "cancel_requested" not in columns:
+        op.add_column(
+            "scrape_jobs",
+            sa.Column("cancel_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+        )
+    if "cpu_cap_mode" not in columns:
+        op.add_column(
+            "scrape_jobs",
+            sa.Column("cpu_cap_mode", sa.String(length=16), nullable=False, server_default="total"),
+        )
+    if "cpu_cap_percent" not in columns:
+        op.add_column(
+            "scrape_jobs",
+            sa.Column("cpu_cap_percent", sa.Integer(), nullable=False, server_default="100"),
+        )
 
 
 def downgrade() -> None:

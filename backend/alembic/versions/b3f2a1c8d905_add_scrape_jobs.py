@@ -21,27 +21,39 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "scrape_jobs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("domain", sa.String(length=1024), nullable=False),
-        sa.Column("max_pages", sa.Integer(), nullable=False, server_default="100"),
-        sa.Column("topic_filter", sa.Text(), nullable=True),
-        sa.Column("status", sa.String(length=32), nullable=False, server_default="pending"),
-        sa.Column("pages_scraped", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("pages_found", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("error", sa.Text(), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_tables = inspector.get_table_names()
+
+    if "scrape_jobs" not in existing_tables:
+        op.create_table(
+            "scrape_jobs",
+            sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column("domain", sa.String(length=1024), nullable=False),
+            sa.Column("max_pages", sa.Integer(), nullable=False, server_default="100"),
+            sa.Column("topic_filter", sa.Text(), nullable=True),
+            sa.Column("status", sa.String(length=32), nullable=False, server_default="pending"),
+            sa.Column("pages_scraped", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("pages_found", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("error", sa.Text(), nullable=True),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.text("now()"),
+                nullable=False,
+            ),
+            sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
+            sa.PrimaryKeyConstraint("id"),
+        )
+
+    existing_indexes = (
+        {idx["name"] for idx in inspector.get_indexes("scrape_jobs")}
+        if "scrape_jobs" in inspector.get_table_names()
+        else set()
     )
-    op.create_index("ix_scrape_jobs_status", "scrape_jobs", ["status"], unique=False)
+    if "ix_scrape_jobs_status" not in existing_indexes:
+        op.create_index("ix_scrape_jobs_status", "scrape_jobs", ["status"], unique=False)
 
 
 def downgrade() -> None:
