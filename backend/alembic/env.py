@@ -1,6 +1,7 @@
 """Alembic environment configuration."""
 
 import asyncio
+import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -14,23 +15,33 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-import app.models  # noqa: F401
 from alembic import context
-from app.config import get_settings
-from app.database import Base
+
+target_metadata = None
+
+try:
+    import app.models  # noqa: F401
+    from app.config import get_settings
+    from app.database import Base
+
+    target_metadata = Base.metadata
+    database_url = get_settings().database_url
+except ModuleNotFoundError:
+    # Fallback for environments where app package import is unavailable during startup.
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        database_url = context.config.get_main_option("sqlalchemy.url")
 
 # Alembic Config object
 config = context.config
 
 # Override the sqlalchemy.url from our settings so the .env is respected
-settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+if database_url:
+    config.set_main_option("sqlalchemy.url", database_url)
 
 # Set up logging from alembic.ini
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-
-target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
