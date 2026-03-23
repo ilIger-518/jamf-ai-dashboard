@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # ── Ollama / LLM ────────────────────────────────────────────
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "llama3.2:3b"
+    ollama_model: str = "hf.co/TeichAI/Qwen3-14B-Claude-Sonnet-4.5-Reasoning-Distill-GGUF:Q6_K"
     embedding_model_name: str = "nomic-embed-text"
     llm_temperature: float = 0.2
     llm_context_window: int = 4096
