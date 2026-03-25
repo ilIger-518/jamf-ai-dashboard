@@ -58,6 +58,23 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
             sa.PrimaryKeyConstraint("id"),
         )
+    else:
+        role_columns = {col["name"] for col in inspector.get_columns("roles")}
+        if "permissions" not in role_columns:
+            op.add_column(
+                "roles",
+                sa.Column(
+                    "permissions",
+                    postgresql.JSONB(astext_type=sa.Text()),
+                    nullable=False,
+                    server_default=sa.text("'[]'::jsonb"),
+                ),
+            )
+        if "is_system" not in role_columns:
+            op.add_column(
+                "roles",
+                sa.Column("is_system", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+            )
 
     role_indexes = (
         {idx["name"] for idx in inspector.get_indexes("roles")}
@@ -94,24 +111,25 @@ def upgrade() -> None:
         sa.column("role_id", postgresql.UUID(as_uuid=True)),
     )
 
-    op.bulk_insert(
-        roles_table,
-        [
-            {
-                "id": ADMIN_ROLE_ID,
-                "name": "Administrator",
-                "description": "Full access to all application management features.",
-                "permissions": ADMIN_PERMISSIONS,
-                "is_system": True,
-            },
-            {
-                "id": VIEWER_ROLE_ID,
-                "name": "Viewer",
-                "description": "Read-only application access.",
-                "permissions": VIEWER_PERMISSIONS,
-                "is_system": True,
-            },
-        ],
+    connection.execute(
+        postgresql.insert(roles_table).values(
+            [
+                {
+                    "id": ADMIN_ROLE_ID,
+                    "name": "Administrator",
+                    "description": "Full access to all application management features.",
+                    "permissions": ADMIN_PERMISSIONS,
+                    "is_system": True,
+                },
+                {
+                    "id": VIEWER_ROLE_ID,
+                    "name": "Viewer",
+                    "description": "Read-only application access.",
+                    "permissions": VIEWER_PERMISSIONS,
+                    "is_system": True,
+                },
+            ]
+        ).on_conflict_do_nothing(index_elements=["id"])
     )
 
     connection.execute(users_table.update().where(users_table.c.is_admin.is_(True)).values(role_id=ADMIN_ROLE_ID))
