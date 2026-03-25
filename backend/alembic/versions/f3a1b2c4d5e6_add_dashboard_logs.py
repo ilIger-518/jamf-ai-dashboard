@@ -52,6 +52,37 @@ def upgrade() -> None:
                 nullable=False,
             ),
         )
+    else:
+        existing_columns = {col["name"] for col in inspector.get_columns("dashboard_logs")}
+
+        if "category" not in existing_columns:
+            op.add_column(
+                "dashboard_logs",
+                sa.Column("category", sa.String(16), nullable=False, server_default="action"),
+            )
+        if "level" not in existing_columns:
+            op.add_column(
+                "dashboard_logs",
+                sa.Column("level", sa.String(16), nullable=False, server_default="info"),
+            )
+        if "message" not in existing_columns:
+            op.add_column(
+                "dashboard_logs",
+                sa.Column("message", sa.Text(), nullable=False, server_default=""),
+            )
+            conn.execute(sa.text("UPDATE dashboard_logs SET message = action WHERE message = ''"))
+        if "method" not in existing_columns:
+            op.add_column("dashboard_logs", sa.Column("method", sa.String(12), nullable=True))
+        if "path" not in existing_columns:
+            op.add_column("dashboard_logs", sa.Column("path", sa.String(255), nullable=True))
+        if "status_code" not in existing_columns:
+            op.add_column("dashboard_logs", sa.Column("status_code", sa.Integer(), nullable=True))
+        if "username" not in existing_columns:
+            op.add_column("dashboard_logs", sa.Column("username", sa.String(64), nullable=True))
+        if "ip_address" not in existing_columns:
+            op.add_column("dashboard_logs", sa.Column("ip_address", sa.String(64), nullable=True))
+        if "user_agent" not in existing_columns:
+            op.add_column("dashboard_logs", sa.Column("user_agent", sa.String(255), nullable=True))
 
     existing_indexes = (
         {idx["name"] for idx in inspector.get_indexes("dashboard_logs")}
