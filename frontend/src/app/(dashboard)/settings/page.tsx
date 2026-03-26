@@ -161,6 +161,12 @@ interface AIConfigData {
   message?: string | null;
 }
 
+const REGOLO_QWEN_PRESET = {
+  chatModel: "Qwen3.5-122B",
+  scrapeModel: "Qwen3.5-122B",
+  embeddingModel: "Qwen3-Embedding-8B",
+};
+
 function AiPanel() {
   const qc = useQueryClient();
   const [provider, setProvider] = useState<"local" | "custom">("local");
@@ -238,6 +244,37 @@ function AiPanel() {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Provider Presets</h2>
+        </div>
+        <div className="p-4">
+          <button
+            onClick={() => {
+              setProvider("custom");
+              setEmbeddingProvider("custom");
+              setCustomModel(REGOLO_QWEN_PRESET.chatModel);
+              setCustomScrapeModel(REGOLO_QWEN_PRESET.scrapeModel);
+              setCustomEmbeddingModel(REGOLO_QWEN_PRESET.embeddingModel);
+              setIsDirty(true);
+            }}
+            className="w-full rounded-xl border border-gray-200 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50 dark:border-gray-700 dark:hover:border-blue-700 dark:hover:bg-blue-900/20"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Regolo Qwen Preset</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Sets chat to `Qwen3.5-122B` and embeddings to `Qwen3-Embedding-8B`.
+                </p>
+              </div>
+              <span className="rounded-lg bg-blue-100 px-2 py-1 text-[11px] font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                Apply preset
+              </span>
+            </div>
+          </button>
+        </div>
+      </div>
+
       <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
           <div className="flex items-center gap-2">
