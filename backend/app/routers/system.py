@@ -15,13 +15,25 @@ class UpdaterConfigPayload(BaseModel):
     branch: str = "main"
 
 
-async def _updater(method: str, path: str, payload: dict | None = None) -> dict:
+class DockerLogsResponse(BaseModel):
+    service: str | None
+    tail: int
+    services: list[str]
+    logs: str
+
+
+async def _updater(
+    method: str,
+    path: str,
+    payload: dict | None = None,
+    params: dict | None = None,
+) -> dict:
     settings = get_settings()
     url = f"{settings.updater_url}{path}"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             if method == "GET":
-                r = await client.get(url)
+                r = await client.get(url, params=params)
             else:
                 r = await client.post(url, json=payload)
         r.raise_for_status()
@@ -57,3 +69,16 @@ async def trigger_check(_: AdminUser) -> dict:
 @router.post("/update/apply", summary="Apply a pending update (admin)")
 async def apply_update(_: AdminUser) -> dict:
     return await _updater("POST", "/apply")
+
+
+@router.get("/docker-logs", response_model=DockerLogsResponse, summary="Get docker compose logs (admin)")
+async def get_docker_logs(
+    _: AdminUser,
+    service: str | None = None,
+    tail: int = 400,
+) -> dict:
+    return await _updater(
+        "GET",
+        "/docker-logs",
+        params={"service": service, "tail": tail},
+    )

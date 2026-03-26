@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 logging.basicConfig(
@@ -91,6 +91,13 @@ class UpdaterConfig(BaseModel):
     repo_url: str
     branch: str = "main"
     repo: str | None = None
+
+
+class DockerLogsResponse(BaseModel):
+    service: str | None
+    tail: int
+    services: list[str]
+    logs: str
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -224,6 +231,13 @@ def _save_env_value(key: str, value: str) -> None:
     if not updated:
         lines.append(f"{key}={value}")
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _list_compose_services() -> list[str]:
+    code, out = _run(["docker", "compose", "config", "--services"])
+    if code != 0 or not out:
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 async def _get_latest_commit() -> str:
@@ -541,6 +555,33 @@ async def trigger_apply() -> dict:
         return {"ok": False, "message": "Update already in progress"}
     asyncio.create_task(apply_update())
     return {"ok": True, "message": "Update started — monitor /status for progress"}
+
+
+@app.get("/docker-logs", response_model=DockerLogsResponse)
+async def get_docker_logs(
+    service: str | None = Query(default=None),
+    tail: int = Query(default=400, ge=50, le=5000),
+) -> DockerLogsResponse:
+    services = _list_compose_services()
+    selected_service = service.strip() if service else None
+
+    if selected_service and services and selected_service not in services:
+        raise HTTPException(status_code=400, detail=f"Unknown docker compose service: {selected_service}")
+
+    cmd = ["docker", "compose", "logs", "--no-color", "--tail", str(tail)]
+    if selected_service:
+        cmd.append(selected_service)
+
+    code, out = _run(cmd)
+    if code != 0:
+        raise HTTPException(status_code=502, detail=out or "Failed to load docker compose logs")
+
+    return DockerLogsResponse(
+        service=selected_service,
+        tail=tail,
+        services=services,
+        logs=out,
+    )
 
 
 @app.on_event("startup")

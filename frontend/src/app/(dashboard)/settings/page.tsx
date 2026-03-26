@@ -87,6 +87,13 @@ interface DashboardLogEntry {
   created_at: string;
 }
 
+interface DockerLogsData {
+  service: string | null;
+  tail: number;
+  services: string[];
+  logs: string;
+}
+
 function getErrorDetail(error: unknown, fallback: string): string {
   const detail = (error as { response?: { data?: { detail?: unknown; title?: unknown } } })?.response?.data;
   if (typeof detail?.detail === "string" && detail.detail.trim()) return detail.detail;
@@ -470,6 +477,8 @@ function UpdatesPanel() {
 
 function LogsPanel() {
   const [category, setCategory] = useState<"all" | "server" | "login" | "action">("all");
+  const [dockerService, setDockerService] = useState<string>("all");
+  const [dockerTail, setDockerTail] = useState<number>(400);
   const { data: logs = [], isLoading, refetch, isFetching, error } = useQuery<DashboardLogEntry[]>({
     queryKey: ["logs", category],
     queryFn: () =>
@@ -481,85 +490,169 @@ function LogsPanel() {
     refetchInterval: 30_000,
     retry: false,
   });
+  const {
+    data: dockerLogs,
+    isLoading: isDockerLoading,
+    isFetching: isDockerFetching,
+    error: dockerError,
+    refetch: refetchDockerLogs,
+  } = useQuery<DockerLogsData>({
+    queryKey: ["system", "docker-logs", dockerService, dockerTail],
+    queryFn: () =>
+      api
+        .get<DockerLogsData>("/system/docker-logs", {
+          params: {
+            ...(dockerService !== "all" ? { service: dockerService } : {}),
+            tail: dockerTail,
+          },
+        })
+        .then((r) => r.data),
+    refetchInterval: 30_000,
+    retry: false,
+  });
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
-      <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Dashboard Logs</h2>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-        </button>
-      </div>
-      <div className="flex gap-2 border-b border-gray-100 px-4 py-2 dark:border-gray-800">
-        {(["all", "server", "login", "action"] as const).map((c) => (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Dashboard Logs</h2>
           <button
-            key={c}
-            onClick={() => setCategory(c)}
-            className={cn(
-              "rounded px-3 py-1 text-xs font-medium capitalize",
-              category === c
-                ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800",
-            )}
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800"
           >
-            {c === "all" ? "All" : c}
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </button>
-        ))}
-      </div>
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
         </div>
-      ) : error ? (
-        <div className="px-4 py-12 text-center text-sm text-red-500 dark:text-red-400">
-          {getErrorDetail(error, "Failed to load dashboard logs.")}
+        <div className="flex gap-2 border-b border-gray-100 px-4 py-2 dark:border-gray-800">
+          {(["all", "server", "login", "action"] as const).map((c) => (
+            <button
+              key={c}
+              onClick={() => setCategory(c)}
+              className={cn(
+                "rounded px-3 py-1 text-xs font-medium capitalize",
+                category === c
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  : "text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800",
+              )}
+            >
+              {c === "all" ? "All" : c}
+            </button>
+          ))}
         </div>
-      ) : logs.length === 0 ? (
-        <div className="py-12 text-center text-sm text-gray-400">No logs yet.</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-400">
-              <tr>
-                <th className="px-4 py-2 text-left">Time</th>
-                <th className="px-4 py-2 text-left">Category</th>
-                <th className="px-4 py-2 text-left">Level</th>
-                <th className="px-4 py-2 text-left">Action</th>
-                <th className="px-4 py-2 text-left">User</th>
-                <th className="px-4 py-2 text-left">IP</th>
-                <th className="px-4 py-2 text-left">Message</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-              {logs.map((log) => (
-                <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
-                  <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
-                    {new Date(log.created_at).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium capitalize", CATEGORY_COLORS[log.category] ?? "bg-gray-100 text-gray-600")}>
-                      {log.category}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium capitalize", LEVEL_COLORS[log.level] ?? "bg-gray-100 text-gray-600")}>
-                      {log.level}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">{log.action}</td>
-                  <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400">{log.username ?? "—"}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">{log.ip_address ?? "—"}</td>
-                  <td className="max-w-xs truncate px-4 py-2 text-xs text-gray-600 dark:text-gray-300" title={log.message}>{log.message}</td>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+          </div>
+        ) : error ? (
+          <div className="px-4 py-12 text-center text-sm text-red-500 dark:text-red-400">
+            {getErrorDetail(error, "Failed to load dashboard logs.")}
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="py-12 text-center text-sm text-gray-400">No logs yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-400">
+                <tr>
+                  <th className="px-4 py-2 text-left">Time</th>
+                  <th className="px-4 py-2 text-left">Category</th>
+                  <th className="px-4 py-2 text-left">Level</th>
+                  <th className="px-4 py-2 text-left">Action</th>
+                  <th className="px-4 py-2 text-left">User</th>
+                  <th className="px-4 py-2 text-left">IP</th>
+                  <th className="px-4 py-2 text-left">Message</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                    <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                      {new Date(log.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium capitalize", CATEGORY_COLORS[log.category] ?? "bg-gray-100 text-gray-600")}>
+                        {log.category}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium capitalize", LEVEL_COLORS[log.level] ?? "bg-gray-100 text-gray-600")}>
+                        {log.level}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">{log.action}</td>
+                    <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400">{log.username ?? "—"}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">{log.ip_address ?? "—"}</td>
+                    <td className="max-w-xs truncate px-4 py-2 text-xs text-gray-600 dark:text-gray-300" title={log.message}>{log.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <div>
+            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Docker Compose Logs</h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Raw `docker compose logs --no-color` output from the deployed stack.
+            </p>
+          </div>
+          <button
+            onClick={() => refetchDockerLogs()}
+            disabled={isDockerFetching}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800"
+          >
+            <RefreshCw className={`h-4 w-4 ${isDockerFetching ? "animate-spin" : ""}`} />
+          </button>
         </div>
-      )}
+        <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-3 text-xs dark:border-gray-800 sm:flex-row sm:items-center">
+          <label className="flex items-center gap-2">
+            <span className="text-gray-500 dark:text-gray-400">Service</span>
+            <select
+              value={dockerService}
+              onChange={(e) => setDockerService(e.target.value)}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            >
+              <option value="all">All services</option>
+              {(dockerLogs?.services ?? []).map((service) => (
+                <option key={service} value={service}>
+                  {service}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="text-gray-500 dark:text-gray-400">Tail</span>
+            <select
+              value={String(dockerTail)}
+              onChange={(e) => setDockerTail(Number(e.target.value))}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            >
+              {[200, 400, 800, 1500, 3000].map((value) => (
+                <option key={value} value={value}>
+                  {value} lines
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {isDockerLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+          </div>
+        ) : dockerError ? (
+          <div className="px-4 py-12 text-center text-sm text-red-500 dark:text-red-400">
+            {getErrorDetail(dockerError, "Failed to load docker compose logs.")}
+          </div>
+        ) : (
+          <pre className="max-h-[34rem] overflow-auto whitespace-pre-wrap p-4 font-mono text-xs text-gray-700 dark:text-gray-300">
+            {dockerLogs?.logs?.trim() || "No docker logs returned."}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }
