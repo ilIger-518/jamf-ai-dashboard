@@ -87,6 +87,15 @@ interface DashboardLogEntry {
   created_at: string;
 }
 
+function getErrorDetail(error: unknown, fallback: string): string {
+  const detail = (error as { response?: { data?: { detail?: unknown; title?: unknown } } })?.response?.data;
+  if (typeof detail?.detail === "string" && detail.detail.trim()) return detail.detail;
+  if (typeof detail?.title === "string" && detail.title.trim()) return detail.title;
+  const message = (error as { message?: unknown })?.message;
+  if (typeof message === "string" && message.trim()) return message;
+  return fallback;
+}
+
 const LEVEL_COLORS: Record<string, string> = {
   info: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
   warning: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300",
@@ -461,7 +470,7 @@ function UpdatesPanel() {
 
 function LogsPanel() {
   const [category, setCategory] = useState<"all" | "server" | "login" | "action">("all");
-  const { data: logs = [], isLoading, refetch, isFetching } = useQuery<DashboardLogEntry[]>({
+  const { data: logs = [], isLoading, refetch, isFetching, error } = useQuery<DashboardLogEntry[]>({
     queryKey: ["logs", category],
     queryFn: () =>
       api
@@ -470,6 +479,7 @@ function LogsPanel() {
         })
         .then((r) => r.data),
     refetchInterval: 30_000,
+    retry: false,
   });
 
   return (
@@ -503,6 +513,10 @@ function LogsPanel() {
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+        </div>
+      ) : error ? (
+        <div className="px-4 py-12 text-center text-sm text-red-500 dark:text-red-400">
+          {getErrorDetail(error, "Failed to load dashboard logs.")}
         </div>
       ) : logs.length === 0 ? (
         <div className="py-12 text-center text-sm text-gray-400">No logs yet.</div>

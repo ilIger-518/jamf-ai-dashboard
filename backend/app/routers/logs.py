@@ -22,7 +22,19 @@ async def list_logs(
     category: LogCategory | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[DashboardLogResponse]:
-    query = select(DashboardLog).order_by(desc(DashboardLog.created_at)).limit(limit)
+    # Skip legacy rows left behind by older dashboard_logs schemas that do not satisfy
+    # the current response contract.
+    query = (
+        select(DashboardLog)
+        .where(
+            DashboardLog.category.is_not(None),
+            DashboardLog.action.is_not(None),
+            DashboardLog.level.is_not(None),
+            DashboardLog.message.is_not(None),
+        )
+        .order_by(desc(DashboardLog.created_at))
+        .limit(limit)
+    )
     if category:
         query = query.where(DashboardLog.category == category)
     result = await db.execute(query)
