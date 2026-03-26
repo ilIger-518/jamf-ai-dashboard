@@ -42,6 +42,8 @@ interface ScrapeJob {
   seed_mode: "sitemap" | "start_url";
   seed_urls: number;
   sitemap_timed_out: boolean;
+  continued_from_job_id: string | null;
+  last_url: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -666,6 +668,16 @@ export default function KnowledgePage() {
                         Seed: {job.seed_mode === "sitemap" ? `sitemap (${job.seed_urls})` : `start URL (${job.seed_urls})`}
                         {job.sitemap_timed_out ? " • sitemap timeout" : ""}
                       </div>
+                      {job.last_url && (
+                        <div className="max-w-xs truncate text-gray-400" title={job.last_url}>
+                          Last URL: {job.last_url.replace(/^https?:\/\//, "")}
+                        </div>
+                      )}
+                      {job.continued_from_job_id && (
+                        <div className="text-gray-400">
+                          Continuation of previous interrupted job
+                        </div>
+                      )}
                       {job.status === "running" && job.max_pages !== null && (
                         <div className="mt-1 h-1 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
                           <div

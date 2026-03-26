@@ -70,6 +70,9 @@ async def ingest_document(
     if not chunks:
         return 0, []
 
+    # Replace prior embeddings for the same source so retries/continuations do not duplicate chunks.
+    await delete_by_source(source_url)
+
     try:
         embeddings = await _embed(chunks, num_thread=num_thread)
     except Exception as exc:

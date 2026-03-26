@@ -316,6 +316,8 @@ async def run_scrape_job(job_id: str) -> None:
     logger.info("Starting scrape job %s", job_id)
     await _append_job_log(job_id, "Job started")
 
+    continued_from_job_id: uuid.UUID | None = None
+
     async with AsyncSessionLocal() as session:
         job = await session.get(ScrapeJob, uuid.UUID(job_id))
         if not job:
@@ -326,9 +328,11 @@ async def run_scrape_job(job_id: str) -> None:
         max_pages = job.max_pages  # None = unlimited
         max_size_bytes = (job.max_size_mb * 1024 * 1024) if job.max_size_mb else None
         topic_filter = job.topic_filter or ""
+        continued_from_job_id = job.continued_from_job_id
 
         job.status = "running"
         job.started_at = datetime.now(UTC)
+        job.last_url = None
         await session.commit()
 
     visited: set[str] = set()
@@ -353,6 +357,25 @@ async def run_scrape_job(job_id: str) -> None:
         },
         follow_redirects=True,
     ) as http:
+        start_netloc = urlparse(start_url).netloc
+
+        if continued_from_job_id:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(KnowledgeDocument.source).where(KnowledgeDocument.doc_type == "url")
+                )
+                resumed_urls = {
+                    _normalize(source)
+                    for source in result.scalars().all()
+                    if source and urlparse(source).netloc == start_netloc
+                }
+                if resumed_urls:
+                    visited.update(resumed_urls)
+                    await _append_job_log(
+                        job_id,
+                        f"Continuation preloaded {len(resumed_urls)} previously ingested URLs for this domain",
+                    )
+
         # ----------------------------------------------------------------
         # Seed the queue: try sitemap first, fall back to start URL
         # ----------------------------------------------------------------
@@ -392,8 +415,6 @@ async def run_scrape_job(job_id: str) -> None:
                 job_row.seed_urls = len(queue)
                 job_row.sitemap_timed_out = sitemap_timed_out
                 await session.commit()
-
-        start_netloc = urlparse(start_url).netloc
 
         throttle_wall_last = time.perf_counter()
         throttle_cpu_last = time.process_time()
@@ -453,6 +474,11 @@ async def run_scrape_job(job_id: str) -> None:
                     await _append_job_log(job_id, f"Skipping non-content URL by extension: {url}")
                     continue
                 visited.add(url)
+                async with AsyncSessionLocal() as session:
+                    job_row = await session.get(ScrapeJob, uuid.UUID(job_id))
+                    if job_row:
+                        job_row.last_url = url
+                        await session.commit()
                 await _append_job_log(job_id, f"Visiting: {url}")
 
                 resp = await http.get(url)
@@ -577,6 +603,7 @@ async def run_scrape_job(job_id: str) -> None:
                             job_row.pages_scraped = pages_scraped
                             job_row.pages_found = len(visited)
                             job_row.bytes_scraped = bytes_scraped
+                            job_row.last_url = url
                             await session.commit()
 
                 # Enqueue child links
@@ -634,6 +661,7 @@ async def run_scrape_job(job_id: str) -> None:
             job_row.pages_scraped = pages_scraped
             job_row.pages_found = len(visited)
             job_row.bytes_scraped = bytes_scraped
+            job_row.last_url = None
             job_row.finished_at = datetime.now(UTC)
             if errors:
                 job_row.error = f"{len(errors)} page(s) failed. First: {errors[0]}"

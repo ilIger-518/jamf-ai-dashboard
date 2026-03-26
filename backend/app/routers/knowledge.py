@@ -49,6 +49,8 @@ class ScrapeJobResponse(BaseModel):
     seed_mode: str
     seed_urls: int
     sitemap_timed_out: bool
+    continued_from_job_id: str | None
+    last_url: str | None
     created_at: str
     started_at: str | None
     finished_at: str | None
@@ -73,6 +75,8 @@ class ScrapeJobResponse(BaseModel):
             seed_mode=job.seed_mode,
             seed_urls=job.seed_urls,
             sitemap_timed_out=job.sitemap_timed_out,
+            continued_from_job_id=str(job.continued_from_job_id) if job.continued_from_job_id else None,
+            last_url=job.last_url,
             created_at=job.created_at.isoformat(),
             started_at=job.started_at.isoformat() if job.started_at else None,
             finished_at=job.finished_at.isoformat() if job.finished_at else None,
@@ -253,6 +257,7 @@ async def continue_scrape_job(
             status="pending",
             cpu_cap_mode=job.cpu_cap_mode,
             cpu_cap_percent=job.cpu_cap_percent,
+            continued_from_job_id=job.id,
         )
         session.add(continued_job)
         await session.commit()
@@ -262,7 +267,10 @@ async def continue_scrape_job(
             ScrapeJobLog(
                 job_id=continued_job.id,
                 level="info",
-                message=f"Continuation created from interrupted job {job.id}",
+                message=(
+                    f"Continuation created from interrupted job {job.id}"
+                    + (f" at last URL {job.last_url}" if job.last_url else "")
+                ),
             )
         )
         await session.commit()
