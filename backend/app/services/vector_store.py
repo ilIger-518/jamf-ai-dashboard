@@ -5,9 +5,9 @@ import uuid
 from typing import Any
 
 import chromadb
-import httpx
 
 from app.config import get_settings
+from app.services.llm import embed_texts
 
 logger = logging.getLogger(__name__)
 
@@ -36,24 +36,8 @@ def _chunk_text(text: str) -> list[str]:
 
 
 async def _embed(texts: list[str], num_thread: int | None = None) -> list[list[float]]:
-    """Call Ollama /api/embeddings for a batch of texts."""
-    settings = get_settings()
-    embeddings: list[list[float]] = []
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        for text in texts:
-            payload: dict[str, Any] = {
-                "model": settings.embedding_model_name,
-                "prompt": text,
-            }
-            if num_thread is not None:
-                payload["options"] = {"num_thread": max(1, int(num_thread))}
-            resp = await client.post(
-                f"{settings.ollama_base_url}/api/embeddings",
-                json=payload,
-            )
-            resp.raise_for_status()
-            embeddings.append(resp.json()["embedding"])
-    return embeddings
+    """Call the configured embedding provider for a batch of texts."""
+    return await embed_texts(texts, num_thread=num_thread)
 
 
 async def ingest_document(

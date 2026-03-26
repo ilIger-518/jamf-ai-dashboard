@@ -24,19 +24,25 @@ class DockerLogsResponse(BaseModel):
 
 class AIConfigPayload(BaseModel):
     provider: str
+    embedding_provider: str = "local"
     custom_base_url: str = ""
     custom_model: str = ""
     custom_api_key: str = ""
+    local_embedding_model: str = ""
+    custom_embedding_model: str = ""
 
 
 class AIConfigResponse(BaseModel):
     provider: str
+    embedding_provider: str
     ollama_base_url: str
     ollama_model: str
     custom_base_url: str
     custom_model: str
     custom_api_key_set: bool
     custom_api_key_masked: str | None = None
+    local_embedding_model: str
+    custom_embedding_model: str
     message: str | None = None
 
 
