@@ -12,6 +12,8 @@ from app.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
+UseCase = str
+
 
 def describe_llm_target(settings: Settings | None = None) -> str:
     cfg = settings or get_settings()
@@ -27,13 +29,31 @@ def describe_embedding_target(settings: Settings | None = None) -> str:
     return f"local:{cfg.embedding_model_name}"
 
 
-def _validate_custom_config(cfg: Settings) -> None:
+def _custom_chat_model(cfg: Settings, use_case: UseCase) -> str:
+    if use_case == "scrape":
+        return cfg.custom_scrape_model or cfg.custom_ai_model
+    return cfg.custom_ai_model
+
+
+def _custom_api_key(cfg: Settings, use_case: UseCase) -> str:
+    if use_case == "chat":
+        return cfg.custom_chat_api_key or cfg.custom_ai_api_key
+    if use_case == "scrape":
+        return cfg.custom_scrape_api_key or cfg.custom_ai_api_key
+    if use_case == "embedding":
+        return cfg.custom_embedding_api_key or cfg.custom_ai_api_key
+    return cfg.custom_ai_api_key
+
+
+def _validate_custom_config(cfg: Settings, use_case: UseCase) -> None:
     if not cfg.custom_ai_base_url.strip():
         raise HTTPException(status_code=503, detail="Custom AI base URL is not configured.")
-    if not cfg.custom_ai_model.strip():
+    if use_case in {"chat", "scrape"} and not _custom_chat_model(cfg, use_case).strip():
         raise HTTPException(status_code=503, detail="Custom AI model is not configured.")
-    if not cfg.custom_ai_api_key.strip():
-        raise HTTPException(status_code=503, detail="Custom AI API key is not configured.")
+    if use_case == "embedding" and not cfg.custom_embedding_model.strip():
+        raise HTTPException(status_code=503, detail="Custom embedding model is not configured.")
+    if not _custom_api_key(cfg, use_case).strip():
+        raise HTTPException(status_code=503, detail=f"Custom {use_case} API key is not configured.")
 
 
 def _openai_chat_url(base_url: str) -> str:
@@ -79,13 +99,14 @@ async def complete_chat(
     *,
     temperature: float | None = None,
     timeout: float | None = None,
+    use_case: UseCase = "chat",
 ) -> str:
     cfg = get_settings()
     request_timeout = float(timeout or cfg.llm_timeout_seconds)
     temp = cfg.llm_temperature if temperature is None else temperature
 
     if cfg.ai_provider == "custom":
-        return await _complete_custom(cfg, messages, temp, request_timeout)
+        return await _complete_custom(cfg, messages, temp, request_timeout, use_case=use_case)
     return await _complete_ollama(cfg, messages, temp, request_timeout)
 
 
@@ -94,12 +115,13 @@ async def stream_chat(
     *,
     temperature: float | None = None,
     timeout: httpx.Timeout | None = None,
+    use_case: UseCase = "chat",
 ) -> AsyncIterator[str]:
     cfg = get_settings()
     temp = cfg.llm_temperature if temperature is None else temperature
 
     if cfg.ai_provider == "custom":
-        async for chunk in _stream_custom(cfg, messages, temp, timeout):
+        async for chunk in _stream_custom(cfg, messages, temp, timeout, use_case=use_case):
             yield chunk
         return
 
@@ -260,8 +282,10 @@ async def _complete_custom(
     messages: list[dict[str, str]],
     temperature: float,
     timeout: float,
+    *,
+    use_case: UseCase,
 ) -> str:
-    _validate_custom_config(cfg)
+    _validate_custom_config(cfg, use_case)
     url = _openai_chat_url(cfg.custom_ai_base_url)
 
     try:
@@ -269,11 +293,11 @@ async def _complete_custom(
             response = await client.post(
                 url,
                 headers={
-                    "Authorization": f"Bearer {cfg.custom_ai_api_key}",
+                    "Authorization": f"Bearer {_custom_api_key(cfg, use_case)}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": cfg.custom_ai_model,
+                    "model": _custom_chat_model(cfg, use_case),
                     "messages": messages,
                     "temperature": temperature,
                     "stream": False,
@@ -311,8 +335,10 @@ async def _stream_custom(
     messages: list[dict[str, str]],
     temperature: float,
     timeout: httpx.Timeout | None,
+    *,
+    use_case: UseCase,
 ) -> AsyncIterator[str]:
-    _validate_custom_config(cfg)
+    _validate_custom_config(cfg, use_case)
     url = _openai_chat_url(cfg.custom_ai_base_url)
     request_timeout = timeout or httpx.Timeout(
         connect=10.0,
@@ -327,11 +353,11 @@ async def _stream_custom(
                 "POST",
                 url,
                 headers={
-                    "Authorization": f"Bearer {cfg.custom_ai_api_key}",
+                    "Authorization": f"Bearer {_custom_api_key(cfg, use_case)}",
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": cfg.custom_ai_model,
+                    "model": _custom_chat_model(cfg, use_case),
                     "messages": messages,
                     "temperature": temperature,
                     "stream": True,
@@ -411,9 +437,7 @@ async def _embed_ollama(
 
 
 async def _embed_custom(cfg: Settings, texts: list[str]) -> list[list[float]]:
-    _validate_custom_config(cfg)
-    if not cfg.custom_embedding_model.strip():
-        raise HTTPException(status_code=503, detail="Custom embedding model is not configured.")
+    _validate_custom_config(cfg, "embedding")
 
     base = cfg.custom_ai_base_url.strip().rstrip("/")
     if base.endswith("/embeddings"):
@@ -428,7 +452,7 @@ async def _embed_custom(cfg: Settings, texts: list[str]) -> list[list[float]]:
             response = await client.post(
                 url,
                 headers={
-                    "Authorization": f"Bearer {cfg.custom_ai_api_key}",
+                    "Authorization": f"Bearer {_custom_api_key(cfg, 'embedding')}",
                     "Content-Type": "application/json",
                 },
                 json={

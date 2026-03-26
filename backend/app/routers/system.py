@@ -28,8 +28,12 @@ class AIConfigPayload(BaseModel):
     custom_base_url: str = ""
     custom_model: str = ""
     custom_api_key: str = ""
+    custom_chat_api_key: str = ""
+    custom_scrape_model: str = ""
+    custom_scrape_api_key: str = ""
     local_embedding_model: str = ""
     custom_embedding_model: str = ""
+    custom_embedding_api_key: str = ""
 
 
 class AIConfigResponse(BaseModel):
@@ -41,8 +45,15 @@ class AIConfigResponse(BaseModel):
     custom_model: str
     custom_api_key_set: bool
     custom_api_key_masked: str | None = None
+    custom_chat_api_key_set: bool
+    custom_chat_api_key_masked: str | None = None
+    custom_scrape_model: str
+    custom_scrape_api_key_set: bool
+    custom_scrape_api_key_masked: str | None = None
     local_embedding_model: str
     custom_embedding_model: str
+    custom_embedding_api_key_set: bool
+    custom_embedding_api_key_masked: str | None = None
     message: str | None = None
 
 

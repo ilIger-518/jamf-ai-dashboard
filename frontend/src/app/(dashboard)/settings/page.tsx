@@ -149,8 +149,15 @@ interface AIConfigData {
   custom_model: string;
   custom_api_key_set: boolean;
   custom_api_key_masked: string | null;
+  custom_chat_api_key_set: boolean;
+  custom_chat_api_key_masked: string | null;
+  custom_scrape_model: string;
+  custom_scrape_api_key_set: boolean;
+  custom_scrape_api_key_masked: string | null;
   local_embedding_model: string;
   custom_embedding_model: string;
+  custom_embedding_api_key_set: boolean;
+  custom_embedding_api_key_masked: string | null;
   message?: string | null;
 }
 
@@ -161,8 +168,12 @@ function AiPanel() {
   const [customBaseUrl, setCustomBaseUrl] = useState("https://api.openai.com/v1");
   const [customModel, setCustomModel] = useState("gpt-4o-mini");
   const [customApiKey, setCustomApiKey] = useState("");
+  const [customChatApiKey, setCustomChatApiKey] = useState("");
+  const [customScrapeModel, setCustomScrapeModel] = useState("gpt-4o-mini");
+  const [customScrapeApiKey, setCustomScrapeApiKey] = useState("");
   const [localEmbeddingModel, setLocalEmbeddingModel] = useState("nomic-embed-text");
   const [customEmbeddingModel, setCustomEmbeddingModel] = useState("text-embedding-3-small");
+  const [customEmbeddingApiKey, setCustomEmbeddingApiKey] = useState("");
   const [isDirty, setIsDirty] = useState(false);
 
   const { data, isLoading, error } = useQuery<AIConfigData>({
@@ -177,9 +188,13 @@ function AiPanel() {
     setEmbeddingProvider(data.embedding_provider);
     setCustomBaseUrl(data.custom_base_url || "https://api.openai.com/v1");
     setCustomModel(data.custom_model || "gpt-4o-mini");
+    setCustomScrapeModel(data.custom_scrape_model || "gpt-4o-mini");
     setLocalEmbeddingModel(data.local_embedding_model || "nomic-embed-text");
     setCustomEmbeddingModel(data.custom_embedding_model || "text-embedding-3-small");
     setCustomApiKey("");
+    setCustomChatApiKey("");
+    setCustomScrapeApiKey("");
+    setCustomEmbeddingApiKey("");
   }, [data, isDirty]);
 
   const saveMutation = useMutation({
@@ -191,13 +206,20 @@ function AiPanel() {
           custom_base_url: customBaseUrl.trim(),
           custom_model: customModel.trim(),
           custom_api_key: customApiKey.trim(),
+          custom_chat_api_key: customChatApiKey.trim(),
+          custom_scrape_model: customScrapeModel.trim(),
+          custom_scrape_api_key: customScrapeApiKey.trim(),
           local_embedding_model: localEmbeddingModel.trim(),
           custom_embedding_model: customEmbeddingModel.trim(),
+          custom_embedding_api_key: customEmbeddingApiKey.trim(),
         })
         .then((r) => r.data),
     onSuccess: (result) => {
       setIsDirty(false);
       setCustomApiKey("");
+      setCustomChatApiKey("");
+      setCustomScrapeApiKey("");
+      setCustomEmbeddingApiKey("");
       toast.success(result.message || "AI settings saved");
       qc.invalidateQueries({ queryKey: ["system", "ai-config"] });
     },
@@ -279,9 +301,13 @@ function AiPanel() {
                   Use an OpenAI-compatible API such as OpenAI or another hosted provider.
                 </p>
                 <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-800 dark:bg-gray-950/40">
-                  <p className="text-gray-500 dark:text-gray-400">Saved key</p>
+                  <p className="text-gray-500 dark:text-gray-400">Chat key</p>
                   <p className="mt-1 font-mono text-gray-800 dark:text-gray-200">
-                    {data?.custom_api_key_set ? data.custom_api_key_masked || "Saved" : "Not configured"}
+                    {data?.custom_chat_api_key_set ? data.custom_chat_api_key_masked || "Saved" : "Not configured"}
+                  </p>
+                  <p className="mt-2 text-gray-500 dark:text-gray-400">Scrape relevance key</p>
+                  <p className="mt-1 font-mono text-gray-800 dark:text-gray-200">
+                    {data?.custom_scrape_api_key_set ? data.custom_scrape_api_key_masked || "Saved" : "Not configured"}
                   </p>
                 </div>
               </button>
@@ -302,7 +328,7 @@ function AiPanel() {
                   />
                 </label>
                 <label className="text-xs text-gray-500 dark:text-gray-400">
-                  Model
+                  Chat model
                   <input
                     value={customModel}
                     onChange={(e) => {
@@ -314,7 +340,7 @@ function AiPanel() {
                   />
                 </label>
                 <label className="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
-                  API key
+                  Generic fallback API key
                   <input
                     type="password"
                     value={customApiKey}
@@ -322,7 +348,45 @@ function AiPanel() {
                       setCustomApiKey(e.target.value);
                       setIsDirty(true);
                     }}
-                    placeholder={data?.custom_api_key_set ? "Leave blank to keep the saved key" : "sk-..."}
+                    placeholder={data?.custom_api_key_set ? "Leave blank to keep the saved fallback key" : "sk-..."}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">
+                  Chat API key
+                  <input
+                    type="password"
+                    value={customChatApiKey}
+                    onChange={(e) => {
+                      setCustomChatApiKey(e.target.value);
+                      setIsDirty(true);
+                    }}
+                    placeholder={data?.custom_chat_api_key_set ? "Leave blank to keep the saved chat key" : "sk-..."}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">
+                  Scrape relevance model
+                  <input
+                    value={customScrapeModel}
+                    onChange={(e) => {
+                      setCustomScrapeModel(e.target.value);
+                      setIsDirty(true);
+                    }}
+                    placeholder="gpt-4o-mini"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
+                  Scrape relevance API key
+                  <input
+                    type="password"
+                    value={customScrapeApiKey}
+                    onChange={(e) => {
+                      setCustomScrapeApiKey(e.target.value);
+                      setIsDirty(true);
+                    }}
+                    placeholder={data?.custom_scrape_api_key_set ? "Leave blank to keep the saved scrape key" : "sk-..."}
                     className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
                   />
                 </label>
@@ -392,18 +456,33 @@ function AiPanel() {
               />
             </label>
           ) : (
-            <label className="text-xs text-gray-500 dark:text-gray-400">
-              Custom embedding model
-              <input
-                value={customEmbeddingModel}
-                onChange={(e) => {
-                  setCustomEmbeddingModel(e.target.value);
-                  setIsDirty(true);
-                }}
-                placeholder="text-embedding-3-small"
-                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
-              />
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs text-gray-500 dark:text-gray-400">
+                Custom embedding model
+                <input
+                  value={customEmbeddingModel}
+                  onChange={(e) => {
+                    setCustomEmbeddingModel(e.target.value);
+                    setIsDirty(true);
+                  }}
+                  placeholder="text-embedding-3-small"
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                />
+              </label>
+              <label className="text-xs text-gray-500 dark:text-gray-400">
+                Embedding API key
+                <input
+                  type="password"
+                  value={customEmbeddingApiKey}
+                  onChange={(e) => {
+                    setCustomEmbeddingApiKey(e.target.value);
+                    setIsDirty(true);
+                  }}
+                  placeholder={data?.custom_embedding_api_key_set ? "Leave blank to keep the saved embedding key" : "sk-..."}
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                />
+              </label>
+            </div>
           )}
         </div>
       </div>

@@ -106,8 +106,12 @@ class AIConfigPayload(BaseModel):
     custom_base_url: str = ""
     custom_model: str = ""
     custom_api_key: str = ""
+    custom_chat_api_key: str = ""
+    custom_scrape_model: str = ""
+    custom_scrape_api_key: str = ""
     local_embedding_model: str = ""
     custom_embedding_model: str = ""
+    custom_embedding_api_key: str = ""
 
 
 class AIConfigResponse(BaseModel):
@@ -119,8 +123,15 @@ class AIConfigResponse(BaseModel):
     custom_model: str
     custom_api_key_set: bool
     custom_api_key_masked: str | None
+    custom_chat_api_key_set: bool
+    custom_chat_api_key_masked: str | None
+    custom_scrape_model: str
+    custom_scrape_api_key_set: bool
+    custom_scrape_api_key_masked: str | None
     local_embedding_model: str
     custom_embedding_model: str
+    custom_embedding_api_key_set: bool
+    custom_embedding_api_key_masked: str | None
     message: str | None = None
 
 
@@ -290,6 +301,9 @@ def _get_ai_config() -> AIConfigResponse:
     provider = (_env_value("AI_PROVIDER", "local") or "local").strip().lower()
     embedding_provider = (_env_value("EMBEDDING_PROVIDER", "local") or "local").strip().lower()
     api_key = _env_value("CUSTOM_AI_API_KEY", "")
+    chat_api_key = _env_value("CUSTOM_CHAT_API_KEY", "")
+    scrape_api_key = _env_value("CUSTOM_SCRAPE_API_KEY", "")
+    embedding_api_key = _env_value("CUSTOM_EMBEDDING_API_KEY", "")
     return AIConfigResponse(
         provider="custom" if provider == "custom" else "local",
         embedding_provider="custom" if embedding_provider == "custom" else "local",
@@ -299,8 +313,15 @@ def _get_ai_config() -> AIConfigResponse:
         custom_model=_env_value("CUSTOM_AI_MODEL", "gpt-4o-mini"),
         custom_api_key_set=bool(api_key),
         custom_api_key_masked=_mask_secret(api_key),
+        custom_chat_api_key_set=bool(chat_api_key or api_key),
+        custom_chat_api_key_masked=_mask_secret(chat_api_key or api_key),
+        custom_scrape_model=_env_value("CUSTOM_SCRAPE_MODEL", _env_value("CUSTOM_AI_MODEL", "gpt-4o-mini")),
+        custom_scrape_api_key_set=bool(scrape_api_key or api_key),
+        custom_scrape_api_key_masked=_mask_secret(scrape_api_key or api_key),
         local_embedding_model=_env_value("EMBEDDING_MODEL_NAME", "nomic-embed-text"),
         custom_embedding_model=_env_value("CUSTOM_EMBEDDING_MODEL", "text-embedding-3-small"),
+        custom_embedding_api_key_set=bool(embedding_api_key or api_key),
+        custom_embedding_api_key_masked=_mask_secret(embedding_api_key or api_key),
     )
 
 
@@ -646,18 +667,32 @@ async def update_ai_config(payload: AIConfigPayload) -> AIConfigResponse:
     custom_base_url = payload.custom_base_url.strip() or current.custom_base_url
     custom_model = payload.custom_model.strip() or current.custom_model
     custom_api_key = payload.custom_api_key.strip()
+    custom_chat_api_key = payload.custom_chat_api_key.strip()
+    custom_scrape_model = payload.custom_scrape_model.strip() or current.custom_scrape_model
+    custom_scrape_api_key = payload.custom_scrape_api_key.strip()
     local_embedding_model = payload.local_embedding_model.strip() or current.local_embedding_model
     custom_embedding_model = payload.custom_embedding_model.strip() or current.custom_embedding_model
+    custom_embedding_api_key = payload.custom_embedding_api_key.strip()
 
     if provider == "custom" or embedding_provider == "custom":
         if not custom_base_url:
             raise HTTPException(status_code=400, detail="Custom AI base URL is required.")
         if provider == "custom" and not custom_model:
             raise HTTPException(status_code=400, detail="Custom AI model is required.")
-        if not custom_api_key and not current.custom_api_key_set:
-            raise HTTPException(status_code=400, detail="Custom AI API key is required.")
+        if provider == "custom" and not (custom_chat_api_key or custom_api_key or current.custom_chat_api_key_set):
+            raise HTTPException(status_code=400, detail="Custom chat API key is required.")
     if embedding_provider == "custom" and not custom_embedding_model:
         raise HTTPException(status_code=400, detail="Custom embedding model is required.")
+    if embedding_provider == "custom" and not (
+        custom_embedding_api_key or custom_api_key or current.custom_embedding_api_key_set
+    ):
+        raise HTTPException(status_code=400, detail="Custom embedding API key is required.")
+    if provider == "custom" and not custom_scrape_model:
+        raise HTTPException(status_code=400, detail="Custom scrape model is required.")
+    if provider == "custom" and not (
+        custom_scrape_api_key or custom_api_key or current.custom_scrape_api_key_set
+    ):
+        raise HTTPException(status_code=400, detail="Custom scrape API key is required.")
     if embedding_provider == "local" and not local_embedding_model:
         raise HTTPException(status_code=400, detail="Local embedding model is required.")
 
@@ -665,10 +700,17 @@ async def update_ai_config(payload: AIConfigPayload) -> AIConfigResponse:
     _save_env_value("EMBEDDING_PROVIDER", embedding_provider)
     _save_env_value("CUSTOM_AI_BASE_URL", custom_base_url)
     _save_env_value("CUSTOM_AI_MODEL", custom_model)
+    _save_env_value("CUSTOM_SCRAPE_MODEL", custom_scrape_model)
     _save_env_value("EMBEDDING_MODEL_NAME", local_embedding_model)
     _save_env_value("CUSTOM_EMBEDDING_MODEL", custom_embedding_model)
     if custom_api_key:
         _save_env_value("CUSTOM_AI_API_KEY", custom_api_key)
+    if custom_chat_api_key:
+        _save_env_value("CUSTOM_CHAT_API_KEY", custom_chat_api_key)
+    if custom_scrape_api_key:
+        _save_env_value("CUSTOM_SCRAPE_API_KEY", custom_scrape_api_key)
+    if custom_embedding_api_key:
+        _save_env_value("CUSTOM_EMBEDDING_API_KEY", custom_embedding_api_key)
 
     code, out = _run(["docker", "compose", "up", "-d", "backend"])
     if code != 0:

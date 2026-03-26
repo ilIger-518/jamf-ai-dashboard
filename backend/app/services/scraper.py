@@ -284,7 +284,14 @@ async def _llm_is_relevant(text_snippet: str, topic_filter: str) -> bool:
         f"Is this page relevant to the topic filter?"
     )
     try:
-        answer = (await complete_chat([{"role": "user", "content": prompt}], temperature=0.0, timeout=20.0)).strip().upper()
+        answer = (
+            await complete_chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0,
+                timeout=20.0,
+                use_case="scrape",
+            )
+        ).strip().upper()
         return answer.startswith("Y")
     except Exception as exc:
         logger.warning("Topic filter LLM call failed (%s), including page by default", exc)
