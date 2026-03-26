@@ -104,15 +104,41 @@ def _emit(msg: str) -> None:
 
 def _run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
     """Run a subprocess; return (returncode, combined stdout+stderr)."""
+    workdir = Path(cwd or PROJECT_DIR)
     try:
         result = subprocess.run(
             cmd,
-            cwd=str(cwd or PROJECT_DIR),
+            cwd=str(workdir),
             capture_output=True,
             text=True,
             timeout=300,
         )
-        return result.returncode, (result.stdout + result.stderr).strip()
+        output = (result.stdout + result.stderr).strip()
+
+        # Docker-mounted git worktrees are commonly owned by a different UID than the
+        # container user. Teach git to trust the project directory and retry once.
+        if (
+            result.returncode != 0
+            and cmd
+            and cmd[0] == "git"
+            and ("dubious ownership" in output or "safe.directory" in output)
+        ):
+            subprocess.run(
+                ["git", "config", "--global", "--add", "safe.directory", str(workdir)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            retry = subprocess.run(
+                cmd,
+                cwd=str(workdir),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            return retry.returncode, (retry.stdout + retry.stderr).strip()
+
+        return result.returncode, output
     except subprocess.TimeoutExpired:
         return 1, "Command timed out after 300 s"
     except FileNotFoundError as exc:
@@ -163,6 +189,24 @@ def _repo_to_url(repo: str) -> str:
     return f"https://github.com/{repo}" if repo else ""
 
 
+def _repo_from_remote() -> str:
+    """Infer owner/repo from git origin when updater config is empty."""
+    code, out = _run(["git", "remote", "get-url", "origin"])
+    if code != 0 or not out:
+        return ""
+
+    value = out.strip()
+    if value.startswith("git@github.com:"):
+        value = value.replace("git@github.com:", "https://github.com/", 1)
+    if value.endswith(".git"):
+        value = value[:-4]
+
+    try:
+        return _repo_from_url(value)
+    except ValueError:
+        return ""
+
+
 def _save_env_value(key: str, value: str) -> None:
     """Persist updater config in /project/.env when available."""
     env_path = PROJECT_DIR / ".env"
@@ -184,7 +228,7 @@ def _save_env_value(key: str, value: str) -> None:
 
 async def _get_latest_commit() -> str:
     """Return the latest commit SHA (12 chars) for the configured branch."""
-    repo = _cfg["github_repo"]
+    repo = _cfg["github_repo"] or _repo_from_remote()
     branch = _cfg["github_branch"]
 
     if repo:
@@ -245,7 +289,7 @@ async def _get_latest_version(repo: str) -> str | None:
 
 
 async def _build_commit_graph(current_short: str, latest_short: str) -> list[dict[str, Any]]:
-    repo = _cfg["github_repo"]
+    repo = _cfg["github_repo"] or _repo_from_remote()
     branch = _cfg["github_branch"]
     if not repo:
         return []
@@ -347,11 +391,12 @@ async def _wait_for_health(timeout: int = ROLLBACK_TIMEOUT) -> bool:
 
 # ── Core operations ───────────────────────────────────────────────────────────
 async def check_for_updates() -> None:
+    repo = _cfg["github_repo"] or _repo_from_remote()
     _state["current_commit"] = _get_current_commit()
     _state["latest_commit"]  = await _get_latest_commit()
     _state["current_version"] = _get_current_version()
-    _state["latest_version"] = await _get_latest_version(_cfg["github_repo"])
-    _state["repo_url"] = _repo_to_url(_cfg["github_repo"])
+    _state["latest_version"] = await _get_latest_version(repo)
+    _state["repo_url"] = _repo_to_url(repo)
     _state["branch"] = _cfg["github_branch"]
     _state["commit_graph"] = await _build_commit_graph(
         _state["current_commit"], _state["latest_commit"]
@@ -502,7 +547,7 @@ async def trigger_apply() -> dict:
 async def on_startup() -> None:
     _state["current_commit"] = _get_current_commit()
     _state["current_version"] = _get_current_version()
-    _state["repo_url"] = _repo_to_url(_cfg["github_repo"])
+    _state["repo_url"] = _repo_to_url(_cfg["github_repo"] or _repo_from_remote())
     _state["branch"] = _cfg["github_branch"]
     asyncio.create_task(_polling_loop())
 
