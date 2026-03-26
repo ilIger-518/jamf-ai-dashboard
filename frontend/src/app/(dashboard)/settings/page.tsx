@@ -142,21 +142,27 @@ interface UpdateStatusData {
 
 interface AIConfigData {
   provider: "local" | "custom";
+  embedding_provider: "local" | "custom";
   ollama_base_url: string;
   ollama_model: string;
   custom_base_url: string;
   custom_model: string;
   custom_api_key_set: boolean;
   custom_api_key_masked: string | null;
+  local_embedding_model: string;
+  custom_embedding_model: string;
   message?: string | null;
 }
 
 function AiPanel() {
   const qc = useQueryClient();
   const [provider, setProvider] = useState<"local" | "custom">("local");
+  const [embeddingProvider, setEmbeddingProvider] = useState<"local" | "custom">("local");
   const [customBaseUrl, setCustomBaseUrl] = useState("https://api.openai.com/v1");
   const [customModel, setCustomModel] = useState("gpt-4o-mini");
   const [customApiKey, setCustomApiKey] = useState("");
+  const [localEmbeddingModel, setLocalEmbeddingModel] = useState("nomic-embed-text");
+  const [customEmbeddingModel, setCustomEmbeddingModel] = useState("text-embedding-3-small");
   const [isDirty, setIsDirty] = useState(false);
 
   const { data, isLoading, error } = useQuery<AIConfigData>({
@@ -168,8 +174,11 @@ function AiPanel() {
   useEffect(() => {
     if (!data || isDirty) return;
     setProvider(data.provider);
+    setEmbeddingProvider(data.embedding_provider);
     setCustomBaseUrl(data.custom_base_url || "https://api.openai.com/v1");
     setCustomModel(data.custom_model || "gpt-4o-mini");
+    setLocalEmbeddingModel(data.local_embedding_model || "nomic-embed-text");
+    setCustomEmbeddingModel(data.custom_embedding_model || "text-embedding-3-small");
     setCustomApiKey("");
   }, [data, isDirty]);
 
@@ -178,9 +187,12 @@ function AiPanel() {
       api
         .post<AIConfigData>("/system/ai-config", {
           provider,
+          embedding_provider: embeddingProvider,
           custom_base_url: customBaseUrl.trim(),
           custom_model: customModel.trim(),
           custom_api_key: customApiKey.trim(),
+          local_embedding_model: localEmbeddingModel.trim(),
+          custom_embedding_model: customEmbeddingModel.trim(),
         })
         .then((r) => r.data),
     onSuccess: (result) => {
@@ -318,10 +330,82 @@ function AiPanel() {
             )}
 
             <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300">
-              Saving AI settings updates the project `.env` and restarts the backend automatically. The embedding model for scraping remains local Ollama.
+              Saving AI settings updates the project `.env` and restarts the backend automatically.
             </div>
           </div>
         )}
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Scrape Embeddings</h2>
+        </div>
+        <div className="space-y-4 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              onClick={() => {
+                setEmbeddingProvider("local");
+                setIsDirty(true);
+              }}
+              className={cn(
+                "rounded-xl border p-4 text-left transition",
+                embeddingProvider === "local"
+                  ? "border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20"
+                  : "border-gray-200 hover:border-blue-300 dark:border-gray-700 dark:hover:border-blue-700",
+              )}
+            >
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">Local embeddings</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Fast on-box ingest if your server has enough CPU and Ollama embedding model available.
+              </p>
+            </button>
+            <button
+              onClick={() => {
+                setEmbeddingProvider("custom");
+                setIsDirty(true);
+              }}
+              className={cn(
+                "rounded-xl border p-4 text-left transition",
+                embeddingProvider === "custom"
+                  ? "border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20"
+                  : "border-gray-200 hover:border-blue-300 dark:border-gray-700 dark:hover:border-blue-700",
+              )}
+            >
+              <p className="text-sm font-semibold text-gray-900 dark:text-white">Custom embeddings</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Use the external provider for scrape embeddings too. This can reduce local CPU usage, but it is not always faster because network latency, rate limits, and API cost apply.
+              </p>
+            </button>
+          </div>
+
+          {embeddingProvider === "local" ? (
+            <label className="text-xs text-gray-500 dark:text-gray-400">
+              Local embedding model
+              <input
+                value={localEmbeddingModel}
+                onChange={(e) => {
+                  setLocalEmbeddingModel(e.target.value);
+                  setIsDirty(true);
+                }}
+                placeholder="nomic-embed-text"
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              />
+            </label>
+          ) : (
+            <label className="text-xs text-gray-500 dark:text-gray-400">
+              Custom embedding model
+              <input
+                value={customEmbeddingModel}
+                onChange={(e) => {
+                  setCustomEmbeddingModel(e.target.value);
+                  setIsDirty(true);
+                }}
+                placeholder="text-embedding-3-small"
+                className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+              />
+            </label>
+          )}
+        </div>
       </div>
     </div>
   );

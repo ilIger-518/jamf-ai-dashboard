@@ -40,9 +40,13 @@ class Settings(BaseSettings):
     custom_ai_base_url: str = "https://api.openai.com/v1"
     custom_ai_model: str = "gpt-4o-mini"
     custom_ai_api_key: str = ""
+    custom_chat_api_key: str = ""
+    custom_scrape_model: str = "gpt-4o-mini"
+    custom_scrape_api_key: str = ""
     embedding_provider: str = "local"
     embedding_model_name: str = "nomic-embed-text"
     custom_embedding_model: str = "text-embedding-3-small"
+    custom_embedding_api_key: str = ""
     llm_temperature: float = 0.2
     llm_context_window: int = 4096
     llm_timeout_seconds: int = 180
