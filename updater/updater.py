@@ -100,6 +100,30 @@ class DockerLogsResponse(BaseModel):
     logs: str
 
 
+class AIConfigPayload(BaseModel):
+    provider: str
+    embedding_provider: str = "local"
+    custom_base_url: str = ""
+    custom_model: str = ""
+    custom_api_key: str = ""
+    local_embedding_model: str = ""
+    custom_embedding_model: str = ""
+
+
+class AIConfigResponse(BaseModel):
+    provider: str
+    embedding_provider: str
+    ollama_base_url: str
+    ollama_model: str
+    custom_base_url: str
+    custom_model: str
+    custom_api_key_set: bool
+    custom_api_key_masked: str | None
+    local_embedding_model: str
+    custom_embedding_model: str
+    message: str | None = None
+
+
 # ── Internal helpers ──────────────────────────────────────────────────────────
 def _emit(msg: str) -> None:
     log.info(msg)
@@ -231,6 +255,53 @@ def _save_env_value(key: str, value: str) -> None:
     if not updated:
         lines.append(f"{key}={value}")
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _read_env_map() -> dict[str, str]:
+    env_path = PROJECT_DIR / ".env"
+    values: dict[str, str] = {}
+    if not env_path.exists():
+        return values
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _env_value(key: str, default: str = "") -> str:
+    env_map = _read_env_map()
+    if key in env_map:
+        return env_map[key]
+    return os.environ.get(key, default)
+
+
+def _mask_secret(value: str) -> str | None:
+    if not value:
+        return None
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}...{value[-4:]}"
+
+
+def _get_ai_config() -> AIConfigResponse:
+    provider = (_env_value("AI_PROVIDER", "local") or "local").strip().lower()
+    embedding_provider = (_env_value("EMBEDDING_PROVIDER", "local") or "local").strip().lower()
+    api_key = _env_value("CUSTOM_AI_API_KEY", "")
+    return AIConfigResponse(
+        provider="custom" if provider == "custom" else "local",
+        embedding_provider="custom" if embedding_provider == "custom" else "local",
+        ollama_base_url=_env_value("OLLAMA_BASE_URL", "http://ollama:11434"),
+        ollama_model=_env_value("OLLAMA_MODEL", ""),
+        custom_base_url=_env_value("CUSTOM_AI_BASE_URL", "https://api.openai.com/v1"),
+        custom_model=_env_value("CUSTOM_AI_MODEL", "gpt-4o-mini"),
+        custom_api_key_set=bool(api_key),
+        custom_api_key_masked=_mask_secret(api_key),
+        local_embedding_model=_env_value("EMBEDDING_MODEL_NAME", "nomic-embed-text"),
+        custom_embedding_model=_env_value("CUSTOM_EMBEDDING_MODEL", "text-embedding-3-small"),
+    )
 
 
 def _list_compose_services() -> list[str]:
@@ -555,6 +626,61 @@ async def trigger_apply() -> dict:
         return {"ok": False, "message": "Update already in progress"}
     asyncio.create_task(apply_update())
     return {"ok": True, "message": "Update started — monitor /status for progress"}
+
+
+@app.get("/ai-config", response_model=AIConfigResponse)
+async def get_ai_config() -> AIConfigResponse:
+    return _get_ai_config()
+
+
+@app.post("/ai-config", response_model=AIConfigResponse)
+async def update_ai_config(payload: AIConfigPayload) -> AIConfigResponse:
+    provider = payload.provider.strip().lower()
+    if provider not in {"local", "custom"}:
+        raise HTTPException(status_code=400, detail="Provider must be 'local' or 'custom'.")
+    embedding_provider = payload.embedding_provider.strip().lower()
+    if embedding_provider not in {"local", "custom"}:
+        raise HTTPException(status_code=400, detail="Embedding provider must be 'local' or 'custom'.")
+
+    current = _get_ai_config()
+    custom_base_url = payload.custom_base_url.strip() or current.custom_base_url
+    custom_model = payload.custom_model.strip() or current.custom_model
+    custom_api_key = payload.custom_api_key.strip()
+    local_embedding_model = payload.local_embedding_model.strip() or current.local_embedding_model
+    custom_embedding_model = payload.custom_embedding_model.strip() or current.custom_embedding_model
+
+    if provider == "custom" or embedding_provider == "custom":
+        if not custom_base_url:
+            raise HTTPException(status_code=400, detail="Custom AI base URL is required.")
+        if provider == "custom" and not custom_model:
+            raise HTTPException(status_code=400, detail="Custom AI model is required.")
+        if not custom_api_key and not current.custom_api_key_set:
+            raise HTTPException(status_code=400, detail="Custom AI API key is required.")
+    if embedding_provider == "custom" and not custom_embedding_model:
+        raise HTTPException(status_code=400, detail="Custom embedding model is required.")
+    if embedding_provider == "local" and not local_embedding_model:
+        raise HTTPException(status_code=400, detail="Local embedding model is required.")
+
+    _save_env_value("AI_PROVIDER", provider)
+    _save_env_value("EMBEDDING_PROVIDER", embedding_provider)
+    _save_env_value("CUSTOM_AI_BASE_URL", custom_base_url)
+    _save_env_value("CUSTOM_AI_MODEL", custom_model)
+    _save_env_value("EMBEDDING_MODEL_NAME", local_embedding_model)
+    _save_env_value("CUSTOM_EMBEDDING_MODEL", custom_embedding_model)
+    if custom_api_key:
+        _save_env_value("CUSTOM_AI_API_KEY", custom_api_key)
+
+    code, out = _run(["docker", "compose", "up", "-d", "backend"])
+    if code != 0:
+        raise HTTPException(status_code=502, detail=out or "Failed to restart backend with updated AI settings")
+
+    healthy = await _wait_for_health()
+    if not healthy:
+        raise HTTPException(status_code=502, detail="Backend restart completed but health check timed out.")
+
+    updated = _get_ai_config()
+    updated.message = "AI settings saved and backend restarted."
+    return updated
 
 
 @app.get("/docker-logs", response_model=DockerLogsResponse)

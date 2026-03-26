@@ -31,6 +31,7 @@ from app.database import AsyncSessionLocal
 from app.models.knowledge import KnowledgeDocument
 from app.models.scrape_job import ScrapeJob
 from app.models.scrape_job_log import ScrapeJobLog
+from app.services.llm import complete_chat
 from app.services.vector_store import ingest_document
 
 logger = logging.getLogger(__name__)
@@ -273,12 +274,9 @@ async def _try_zoomin_content(
 
 async def _llm_is_relevant(text_snippet: str, topic_filter: str) -> bool:
     """
-    Ask the local LLM whether this page is relevant to topic_filter.
+    Ask the configured AI provider whether this page is relevant to topic_filter.
     Returns True if relevant, False to skip.
     """
-    from app.config import get_settings
-
-    settings = get_settings()
     prompt = (
         f"You are a content classifier. Answer only YES or NO.\n"
         f"Topic filter: {topic_filter}\n"
@@ -286,19 +284,8 @@ async def _llm_is_relevant(text_snippet: str, topic_filter: str) -> bool:
         f"Is this page relevant to the topic filter?"
     )
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.post(
-                f"{settings.ollama_base_url}/api/chat",
-                json={
-                    "model": settings.ollama_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                    "options": {"temperature": 0.0},
-                },
-            )
-            resp.raise_for_status()
-            answer = resp.json()["message"]["content"].strip().upper()
-            return answer.startswith("Y")
+        answer = (await complete_chat([{"role": "user", "content": prompt}], temperature=0.0, timeout=20.0)).strip().upper()
+        return answer.startswith("Y")
     except Exception as exc:
         logger.warning("Topic filter LLM call failed (%s), including page by default", exc)
         return True  # include on error

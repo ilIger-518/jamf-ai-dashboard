@@ -39,6 +39,7 @@ from app.routers import (
 from app.services.jamf.sync import sync_all_servers
 from app.services.auth import AuthService
 from app.services.dashboard_logs import write_dashboard_log
+from app.services.llm import describe_llm_target
 
 logger = structlog.get_logger(__name__)
 
@@ -47,7 +48,7 @@ logger = structlog.get_logger(__name__)
 async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     """Startup and shutdown lifecycle."""
     settings = get_settings()
-    logger.info("Starting Jamf AI Dashboard", model=settings.ollama_model)
+    logger.info("Starting Jamf AI Dashboard", provider=settings.ai_provider, model=describe_llm_target(settings))
 
     # Warm up Redis connection
     await get_redis()

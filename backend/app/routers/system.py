@@ -22,6 +22,24 @@ class DockerLogsResponse(BaseModel):
     logs: str
 
 
+class AIConfigPayload(BaseModel):
+    provider: str
+    custom_base_url: str = ""
+    custom_model: str = ""
+    custom_api_key: str = ""
+
+
+class AIConfigResponse(BaseModel):
+    provider: str
+    ollama_base_url: str
+    ollama_model: str
+    custom_base_url: str
+    custom_model: str
+    custom_api_key_set: bool
+    custom_api_key_masked: str | None = None
+    message: str | None = None
+
+
 async def _updater(
     method: str,
     path: str,
@@ -82,3 +100,13 @@ async def get_docker_logs(
         "/docker-logs",
         params={"service": service, "tail": tail},
     )
+
+
+@router.get("/ai-config", response_model=AIConfigResponse, summary="Get AI provider config (admin)")
+async def get_ai_config(_: AdminUser) -> dict:
+    return await _updater("GET", "/ai-config")
+
+
+@router.post("/ai-config", response_model=AIConfigResponse, summary="Save AI provider config (admin)")
+async def set_ai_config(payload: AIConfigPayload, _: AdminUser) -> dict:
+    return await _updater("POST", "/ai-config", payload.model_dump())

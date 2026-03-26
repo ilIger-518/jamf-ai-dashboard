@@ -34,9 +34,15 @@ class Settings(BaseSettings):
     chroma_port: int = 8001
 
     # ── Ollama / LLM ────────────────────────────────────────────
+    ai_provider: str = "local"
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "hf.co/TeichAI/Qwen3-14B-Claude-Sonnet-4.5-Reasoning-Distill-GGUF:Q6_K"
+    custom_ai_base_url: str = "https://api.openai.com/v1"
+    custom_ai_model: str = "gpt-4o-mini"
+    custom_ai_api_key: str = ""
+    embedding_provider: str = "local"
     embedding_model_name: str = "nomic-embed-text"
+    custom_embedding_model: str = "text-embedding-3-small"
     llm_temperature: float = 0.2
     llm_context_window: int = 4096
     llm_timeout_seconds: int = 180
@@ -75,6 +81,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.secret_key != "change-me-in-production"
+
+    @property
+    def llm_model_name(self) -> str:
+        return self.custom_ai_model if self.ai_provider == "custom" else self.ollama_model
+
+    @property
+    def embedding_model_name_effective(self) -> str:
+        return self.custom_embedding_model if self.embedding_provider == "custom" else self.embedding_model_name
 
 
 @lru_cache

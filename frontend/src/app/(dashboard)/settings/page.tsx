@@ -14,6 +14,7 @@ import {
   Wand2,
   ShieldCheck,
   ShieldAlert,
+  Bot,
   ChevronRight,
   Loader2,
   RotateCw,
@@ -137,6 +138,193 @@ interface UpdateStatusData {
   last_update_result: string | null;
   last_update_at: string | null;
   log: string[];
+}
+
+interface AIConfigData {
+  provider: "local" | "custom";
+  ollama_base_url: string;
+  ollama_model: string;
+  custom_base_url: string;
+  custom_model: string;
+  custom_api_key_set: boolean;
+  custom_api_key_masked: string | null;
+  message?: string | null;
+}
+
+function AiPanel() {
+  const qc = useQueryClient();
+  const [provider, setProvider] = useState<"local" | "custom">("local");
+  const [customBaseUrl, setCustomBaseUrl] = useState("https://api.openai.com/v1");
+  const [customModel, setCustomModel] = useState("gpt-4o-mini");
+  const [customApiKey, setCustomApiKey] = useState("");
+  const [isDirty, setIsDirty] = useState(false);
+
+  const { data, isLoading, error } = useQuery<AIConfigData>({
+    queryKey: ["system", "ai-config"],
+    queryFn: () => api.get<AIConfigData>("/system/ai-config").then((r) => r.data),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (!data || isDirty) return;
+    setProvider(data.provider);
+    setCustomBaseUrl(data.custom_base_url || "https://api.openai.com/v1");
+    setCustomModel(data.custom_model || "gpt-4o-mini");
+    setCustomApiKey("");
+  }, [data, isDirty]);
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      api
+        .post<AIConfigData>("/system/ai-config", {
+          provider,
+          custom_base_url: customBaseUrl.trim(),
+          custom_model: customModel.trim(),
+          custom_api_key: customApiKey.trim(),
+        })
+        .then((r) => r.data),
+    onSuccess: (result) => {
+      setIsDirty(false);
+      setCustomApiKey("");
+      toast.success(result.message || "AI settings saved");
+      qc.invalidateQueries({ queryKey: ["system", "ai-config"] });
+    },
+    onError: (err: unknown) => {
+      toast.error(getErrorDetail(err, "Failed to save AI settings"));
+    },
+  });
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+        {getErrorDetail(error, "Failed to load AI settings.")}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-gray-500" />
+            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">AI Provider</h2>
+          </div>
+          <button
+            onClick={() => saveMutation.mutate()}
+            disabled={!isDirty || saveMutation.isPending}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saveMutation.isPending ? "Saving…" : "Save AI settings"}
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+          </div>
+        ) : (
+          <div className="space-y-4 p-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => {
+                  setProvider("local");
+                  setIsDirty(true);
+                }}
+                className={cn(
+                  "rounded-xl border p-4 text-left transition",
+                  provider === "local"
+                    ? "border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20"
+                    : "border-gray-200 hover:border-blue-300 dark:border-gray-700 dark:hover:border-blue-700",
+                )}
+              >
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Local AI / LLM</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Use the internal Ollama model running in your stack.
+                </p>
+                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-800 dark:bg-gray-950/40">
+                  <p className="text-gray-500 dark:text-gray-400">Ollama endpoint</p>
+                  <p className="mt-1 font-mono text-gray-800 dark:text-gray-200">{data?.ollama_base_url || "—"}</p>
+                  <p className="mt-2 text-gray-500 dark:text-gray-400">Model</p>
+                  <p className="mt-1 font-mono text-gray-800 dark:text-gray-200">{data?.ollama_model || "—"}</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setProvider("custom");
+                  setIsDirty(true);
+                }}
+                className={cn(
+                  "rounded-xl border p-4 text-left transition",
+                  provider === "custom"
+                    ? "border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20"
+                    : "border-gray-200 hover:border-blue-300 dark:border-gray-700 dark:hover:border-blue-700",
+                )}
+              >
+                <p className="text-sm font-semibold text-gray-900 dark:text-white">Custom AI with API Key</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Use an OpenAI-compatible API such as OpenAI or another hosted provider.
+                </p>
+                <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-800 dark:bg-gray-950/40">
+                  <p className="text-gray-500 dark:text-gray-400">Saved key</p>
+                  <p className="mt-1 font-mono text-gray-800 dark:text-gray-200">
+                    {data?.custom_api_key_set ? data.custom_api_key_masked || "Saved" : "Not configured"}
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            {provider === "custom" && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-xs text-gray-500 dark:text-gray-400">
+                  API base URL
+                  <input
+                    value={customBaseUrl}
+                    onChange={(e) => {
+                      setCustomBaseUrl(e.target.value);
+                      setIsDirty(true);
+                    }}
+                    placeholder="https://api.openai.com/v1"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">
+                  Model
+                  <input
+                    value={customModel}
+                    onChange={(e) => {
+                      setCustomModel(e.target.value);
+                      setIsDirty(true);
+                    }}
+                    placeholder="gpt-4o-mini"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 sm:col-span-2">
+                  API key
+                  <input
+                    type="password"
+                    value={customApiKey}
+                    onChange={(e) => {
+                      setCustomApiKey(e.target.value);
+                      setIsDirty(true);
+                    }}
+                    placeholder={data?.custom_api_key_set ? "Leave blank to keep the saved key" : "sk-..."}
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100"
+                  />
+                </label>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300">
+              Saving AI settings updates the project `.env` and restarts the backend automatically. The embedding model for scraping remains local Ollama.
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function UpdatesPanel() {
@@ -1442,7 +1630,7 @@ export default function SettingsPage() {
   const [showWizard, setShowWizard] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [syncingAll, setSyncingAll] = useState(false);
-  const [activeTab, setActiveTab] = useState<"servers" | "users" | "logs" | "updates">("servers");
+  const [activeTab, setActiveTab] = useState<"servers" | "users" | "ai" | "logs" | "updates">("servers");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -1457,6 +1645,7 @@ export default function SettingsPage() {
     () => [
       ...(canManageServers ? [{ key: "servers" as const, label: "Jamf Servers", icon: Server }] : []),
       ...((canManageUsers || canManageRoles) ? [{ key: "users" as const, label: "Users & Roles", icon: Users }] : []),
+      ...(canManageSettings ? [{ key: "ai" as const, label: "AI", icon: Bot }] : []),
       ...(canManageSettings ? [{ key: "logs" as const, label: "Logs", icon: ScrollText }] : []),
       ...(canAccessUpdates ? [{ key: "updates" as const, label: "Updates", icon: ArrowUpCircle }] : []),
     ],
@@ -1733,6 +1922,8 @@ export default function SettingsPage() {
       )}
 
       {activeTab === "users" && <UsersRolesPanel canManageUsers={canManageUsers} canManageRoles={canManageRoles} />}
+
+      {activeTab === "ai" && <AiPanel />}
 
       {activeTab === "logs" && <LogsPanel />}
 

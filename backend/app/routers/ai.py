@@ -14,7 +14,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.dependencies import CurrentUser, get_user_permissions
 from app.models.ai import ChatMessage, ChatSession
@@ -24,6 +23,7 @@ from app.models.policy import Policy
 from app.models.server import JamfServer
 from app.models.smart_group import SmartGroup
 from app.services.encryption import decrypt
+from app.services.llm import complete_chat, stream_chat
 from app.services.vector_store import query_similar
 
 logger = logging.getLogger(__name__)
@@ -171,8 +171,7 @@ def _extract_json_object(content: str) -> dict | None:
 
 
 async def _policy_spec_from_prompt(message: str) -> dict:
-    """Ask Ollama to produce a minimal policy spec as JSON."""
-    settings = get_settings()
+    """Ask the configured AI provider to produce a minimal policy spec as JSON."""
     prompt = (
         "Return ONLY JSON. No markdown.\n"
         "Generate a Jamf policy draft from this request.\n"
@@ -180,18 +179,7 @@ async def _policy_spec_from_prompt(message: str) -> dict:
         "frequency (Once per computer|Ongoing), trigger_other (string), notes (string).\n"
         f"User request: {message}"
     )
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{settings.ollama_base_url}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.1},
-            },
-        )
-        resp.raise_for_status()
-        content = resp.json()["message"]["content"].strip()
+    content = (await complete_chat([{"role": "user", "content": prompt}], temperature=0.1, timeout=30.0)).strip()
 
     parsed = _extract_json_object(content)
     if parsed is None:
@@ -227,8 +215,7 @@ async def _policy_spec_from_prompt(message: str) -> dict:
 
 
 async def _group_spec_from_prompt(message: str) -> dict:
-    """Ask Ollama to produce a minimal group spec as JSON."""
-    settings = get_settings()
+    """Ask the configured AI provider to produce a minimal group spec as JSON."""
     prompt = (
         "Return ONLY JSON. No markdown.\n"
         "Generate a Jamf computer group draft from this request.\n"
@@ -236,18 +223,7 @@ async def _group_spec_from_prompt(message: str) -> dict:
         "criteria_value (string, optional for smart groups).\n"
         f"User request: {message}"
     )
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{settings.ollama_base_url}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.1},
-            },
-        )
-        resp.raise_for_status()
-        content = resp.json()["message"]["content"].strip()
+    content = (await complete_chat([{"role": "user", "content": prompt}], temperature=0.1, timeout=30.0)).strip()
 
     parsed = _extract_json_object(content)
     fallback_name = message.strip()[:80] or "Jamf AI Group"
@@ -277,26 +253,14 @@ async def _group_spec_from_prompt(message: str) -> dict:
 
 
 async def _script_spec_from_prompt(message: str) -> dict:
-    """Ask Ollama to produce a minimal script spec as JSON."""
-    settings = get_settings()
+    """Ask the configured AI provider to produce a minimal script spec as JSON."""
     prompt = (
         "Return ONLY JSON. No markdown.\n"
         "Generate a Jamf script draft from this request.\n"
         "Fields: name (string), script_contents (string), notes (string), info (string), priority (Before|After).\n"
         f"User request: {message}"
     )
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{settings.ollama_base_url}/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.1},
-            },
-        )
-        resp.raise_for_status()
-        content = resp.json()["message"]["content"].strip()
+    content = (await complete_chat([{"role": "user", "content": prompt}], temperature=0.1, timeout=30.0)).strip()
 
     parsed = _extract_json_object(content)
     fallback_name = message.strip()[:80] or "Jamf AI Script"
@@ -699,67 +663,9 @@ async def _get_context_stats() -> str:
 
 
 async def _call_ollama(history: list[dict]) -> str:
-    """Send message history to Ollama and return the reply text."""
-    settings = get_settings()
+    """Send message history to the configured provider and return the reply text."""
     try:
-        # Large prompts and policy generation can take longer than default HTTP timeouts.
-        async with httpx.AsyncClient(timeout=float(settings.llm_timeout_seconds)) as client:
-            response = await client.post(
-                f"{settings.ollama_base_url}/api/chat",
-                json={
-                    "model": settings.ollama_model,
-                    "messages": history,
-                    "stream": False,
-                    "options": {"temperature": settings.llm_temperature},
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            message = payload.get("message")
-            content = message.get("content") if isinstance(message, dict) else None
-            if not isinstance(content, str):
-                logger.error("Unexpected Ollama response payload: %s", payload)
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "Ollama returned an unexpected response payload. "
-                        "Check backend logs and verify the selected model can answer chat requests."
-                    ),
-                )
-            return content
-    except httpx.ConnectError:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"Ollama is not reachable at {settings.ollama_base_url}. "
-                "Make sure the Ollama container is running and the model is pulled."
-            ),
-        )
-    except httpx.ReadTimeout:
-        raise HTTPException(
-            status_code=504,
-            detail=(
-                "The AI model took too long to respond. "
-                "Try a shorter prompt, or increase LLM_TIMEOUT_SECONDS."
-            ),
-        )
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"Model '{settings.ollama_model}' is not available. "
-                    f"Pull it with: docker exec -it ollama ollama pull {settings.ollama_model}"
-                ),
-            )
-        logger.error("Ollama error: %s — %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=502, detail="Ollama returned an error. Check backend logs.")
-    except ValueError as exc:
-        logger.exception("Invalid Ollama JSON response: %s", exc)
-        raise HTTPException(
-            status_code=502,
-            detail="Ollama returned invalid JSON. Check backend logs.",
-        )
+        return await complete_chat(history)
     except HTTPException:
         raise
     except Exception as exc:
@@ -768,75 +674,10 @@ async def _call_ollama(history: list[dict]) -> str:
 
 
 async def _stream_ollama(history: list[dict]):
-    """Stream incremental text chunks from Ollama."""
-    settings = get_settings()
-    timeout = httpx.Timeout(
-        connect=10.0,
-        read=float(settings.llm_timeout_seconds),
-        write=30.0,
-        pool=30.0,
-    )
+    """Stream incremental text chunks from the configured provider."""
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            async with client.stream(
-                "POST",
-                f"{settings.ollama_base_url}/api/chat",
-                json={
-                    "model": settings.ollama_model,
-                    "messages": history,
-                    "stream": True,
-                    "options": {"temperature": settings.llm_temperature},
-                },
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    evt = json.loads(line)
-                    if not isinstance(evt, dict):
-                        logger.error("Unexpected Ollama stream event payload: %s", evt)
-                        raise HTTPException(
-                            status_code=502,
-                            detail="Ollama returned an invalid stream event. Check backend logs.",
-                        )
-                    chunk = (evt.get("message") or {}).get("content") or ""
-                    if chunk:
-                        yield chunk
-                    if evt.get("done"):
-                        break
-    except httpx.ConnectError:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"Ollama is not reachable at {settings.ollama_base_url}. "
-                "Make sure the Ollama container is running and the model is pulled."
-            ),
-        )
-    except httpx.ReadTimeout:
-        raise HTTPException(
-            status_code=504,
-            detail=(
-                "The AI model took too long to respond. "
-                "Try a shorter prompt, or increase LLM_TIMEOUT_SECONDS."
-            ),
-        )
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise HTTPException(
-                status_code=503,
-                detail=(
-                    f"Model '{settings.ollama_model}' is not available. "
-                    f"Pull it with: docker exec -it ollama ollama pull {settings.ollama_model}"
-                ),
-            )
-        logger.error("Ollama error: %s — %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=502, detail="Ollama returned an error. Check backend logs.")
-    except ValueError as exc:
-        logger.exception("Invalid Ollama stream JSON response: %s", exc)
-        raise HTTPException(
-            status_code=502,
-            detail="Ollama returned invalid JSON while streaming. Check backend logs.",
-        )
+        async for chunk in stream_chat(history):
+            yield chunk
     except HTTPException:
         raise
     except Exception as exc:
