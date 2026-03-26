@@ -196,6 +196,10 @@ async def _run_job_safe(job_id: str) -> None:
             pass
 
 
+def _is_interrupted_job(job: ScrapeJob) -> bool:
+    return job.status == "failed" and bool(job.error and job.error.startswith("Interrupted:"))
+
+
 @router.get("/scrape", response_model=list[ScrapeJobResponse])
 async def list_scrape_jobs(_: CurrentUser) -> list[ScrapeJobResponse]:
     """List all scrape jobs (newest first)."""
@@ -225,6 +229,46 @@ async def get_scrape_job(job_id: str, _: CurrentUser) -> ScrapeJobResponse:
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return ScrapeJobResponse.from_orm(job)
+
+
+@router.post("/scrape/{job_id}/continue", response_model=ScrapeJobResponse, status_code=202)
+async def continue_scrape_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    _: ManageKnowledgeUser,
+) -> ScrapeJobResponse:
+    """Restart an interrupted scrape job with the same settings."""
+    async with AsyncSessionLocal() as session:
+        job = await session.get(ScrapeJob, uuid.UUID(job_id))
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if not _is_interrupted_job(job):
+            raise HTTPException(status_code=409, detail="Only interrupted jobs can be continued")
+
+        continued_job = ScrapeJob(
+            domain=job.domain,
+            max_pages=job.max_pages,
+            max_size_mb=job.max_size_mb,
+            topic_filter=job.topic_filter,
+            status="pending",
+            cpu_cap_mode=job.cpu_cap_mode,
+            cpu_cap_percent=job.cpu_cap_percent,
+        )
+        session.add(continued_job)
+        await session.commit()
+        await session.refresh(continued_job)
+
+        session.add(
+            ScrapeJobLog(
+                job_id=continued_job.id,
+                level="info",
+                message=f"Continuation created from interrupted job {job.id}",
+            )
+        )
+        await session.commit()
+
+    background_tasks.add_task(_run_job_safe, str(continued_job.id))
+    return ScrapeJobResponse.from_orm(continued_job)
 
 
 @router.get("/scrape/{job_id}/logs", response_model=list[ScrapeJobLogResponse])

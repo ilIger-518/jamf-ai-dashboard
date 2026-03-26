@@ -18,6 +18,7 @@ import {
   Pause,
   Play,
   StopCircle,
+  RotateCcw,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -80,6 +81,10 @@ interface ScrapeRuntime {
   embedding_threads: number;
   pause_requested: boolean;
   cancel_requested: boolean;
+}
+
+function isInterruptedJob(job: ScrapeJob): boolean {
+  return job.status === "failed" && !!job.error?.startsWith("Interrupted:");
 }
 
 function formatBytes(bytes: number): string {
@@ -557,6 +562,21 @@ export default function KnowledgePage() {
     onError: () => toast.error("Failed to delete source"),
   });
 
+  const continueJob = useMutation({
+    mutationFn: (id: string) => api.post<ScrapeJob>(`/knowledge/scrape/${id}/continue`).then((r) => r.data),
+    onSuccess: () => {
+      toast.success("Continuation job started");
+      qc.invalidateQueries({ queryKey: ["scrape-jobs"] });
+      qc.invalidateQueries({ queryKey: ["knowledge-sources"] });
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to continue job";
+      toast.error(msg);
+    },
+  });
+
   // Poll while any job is running or pending
   const hasActiveJob = jobs.some((j) => j.status === "running" || j.status === "pending");
   useEffect(() => {
@@ -689,6 +709,16 @@ export default function KnowledgePage() {
                         >
                           <Settings2 className="h-3.5 w-3.5" />
                           Settings
+                        </button>
+                      )}
+                      {isInterruptedJob(job) && (
+                        <button
+                          onClick={() => continueJob.mutate(job.id)}
+                          disabled={continueJob.isPending}
+                          className="mr-2 inline-flex items-center gap-1 rounded-md border border-blue-300 px-2.5 py-1 text-xs text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                          Continue
                         </button>
                       )}
                       {job.status !== "pending" && job.status !== "running" && (
