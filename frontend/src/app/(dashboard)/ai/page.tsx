@@ -58,6 +58,27 @@ function relativeTime(iso: string) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+async function extractErrorMessage(response: Response): Promise<string> {
+  const fallback = "Could not reach the AI service. Make sure Ollama is running.";
+  const contentType = response.headers.get("content-type") || "";
+
+  try {
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { detail?: unknown; message?: unknown; title?: unknown };
+      if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
+      if (typeof payload.message === "string" && payload.message.trim()) return payload.message;
+      if (typeof payload.title === "string" && payload.title.trim()) return payload.title;
+    } else {
+      const text = (await response.text()).trim();
+      if (text) return text;
+    }
+  } catch {
+    // Fall back to the generic message below.
+  }
+
+  return fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -151,7 +172,7 @@ export default function AiAssistantPage() {
     });
 
     if (!response.ok || !response.body) {
-      throw new Error("Could not reach the AI service. Make sure Ollama is running.");
+      throw new Error(await extractErrorMessage(response));
     }
 
     const reader = response.body.getReader();
@@ -620,4 +641,3 @@ export default function AiAssistantPage() {
     </div>
   );
 }
-

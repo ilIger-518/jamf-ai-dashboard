@@ -714,7 +714,19 @@ async def _call_ollama(history: list[dict]) -> str:
                 },
             )
             response.raise_for_status()
-            return response.json()["message"]["content"]
+            payload = response.json()
+            message = payload.get("message")
+            content = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(content, str):
+                logger.error("Unexpected Ollama response payload: %s", payload)
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Ollama returned an unexpected response payload. "
+                        "Check backend logs and verify the selected model can answer chat requests."
+                    ),
+                )
+            return content
     except httpx.ConnectError:
         raise HTTPException(
             status_code=503,
@@ -742,6 +754,14 @@ async def _call_ollama(history: list[dict]) -> str:
             )
         logger.error("Ollama error: %s — %s", exc.response.status_code, exc.response.text)
         raise HTTPException(status_code=502, detail="Ollama returned an error. Check backend logs.")
+    except ValueError as exc:
+        logger.exception("Invalid Ollama JSON response: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Ollama returned invalid JSON. Check backend logs.",
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Unexpected AI error: %s", exc)
         raise HTTPException(status_code=500, detail="Unexpected error calling the AI service.")
@@ -773,6 +793,12 @@ async def _stream_ollama(history: list[dict]):
                     if not line:
                         continue
                     evt = json.loads(line)
+                    if not isinstance(evt, dict):
+                        logger.error("Unexpected Ollama stream event payload: %s", evt)
+                        raise HTTPException(
+                            status_code=502,
+                            detail="Ollama returned an invalid stream event. Check backend logs.",
+                        )
                     chunk = (evt.get("message") or {}).get("content") or ""
                     if chunk:
                         yield chunk
@@ -805,6 +831,14 @@ async def _stream_ollama(history: list[dict]):
             )
         logger.error("Ollama error: %s — %s", exc.response.status_code, exc.response.text)
         raise HTTPException(status_code=502, detail="Ollama returned an error. Check backend logs.")
+    except ValueError as exc:
+        logger.exception("Invalid Ollama stream JSON response: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Ollama returned invalid JSON while streaming. Check backend logs.",
+        )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Unexpected AI stream error: %s", exc)
         raise HTTPException(status_code=500, detail="Unexpected error calling the AI service.")
