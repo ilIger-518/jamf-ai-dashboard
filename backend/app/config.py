@@ -74,6 +74,7 @@ class Settings(BaseSettings):
 
     # ── Logging ─────────────────────────────────────────────────
     log_level: str = "INFO"
+    server_logs_dir: str = "/app/logs/server-runs"
 
     @field_validator("cors_origins", mode="before")
     @classmethod

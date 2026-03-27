@@ -24,6 +24,7 @@ import {
   ArrowUpCircle,
   CheckCheck,
   AlertTriangle,
+  Download,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -93,6 +94,27 @@ interface DockerLogsData {
   tail: number;
   services: string[];
   logs: string;
+}
+
+interface ServerLogFileInfo {
+  filename: string;
+  size_bytes: number;
+  created_at: string;
+  modified_at: string;
+  is_current: boolean;
+}
+
+interface ServerLogsIndexData {
+  log_dir: string;
+  current_log_file: string | null;
+  files: ServerLogFileInfo[];
+}
+
+function formatByteSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function getErrorDetail(error: unknown, fallback: string): string {
@@ -898,6 +920,36 @@ function LogsPanel() {
     refetchInterval: 30_000,
     retry: false,
   });
+  const {
+    data: serverLogs,
+    isLoading: isServerLogsLoading,
+    isFetching: isServerLogsFetching,
+    error: serverLogsError,
+    refetch: refetchServerLogs,
+  } = useQuery<ServerLogsIndexData>({
+    queryKey: ["system", "server-logs"],
+    queryFn: () => api.get<ServerLogsIndexData>("/system/server-logs").then((r) => r.data),
+    refetchInterval: 30_000,
+    retry: false,
+  });
+
+  const downloadServerLog = async (filename: string) => {
+    try {
+      const response = await api.get<Blob>(`/system/server-logs/${encodeURIComponent(filename)}`, {
+        responseType: "blob",
+      });
+      const blobUrl = window.URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err: unknown) {
+      toast.error(getErrorDetail(err, "Failed to download server log"));
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -972,6 +1024,88 @@ function LogsPanel() {
                     <td className="px-4 py-2 text-xs text-gray-600 dark:text-gray-400">{log.username ?? "—"}</td>
                     <td className="px-4 py-2 font-mono text-xs text-gray-500 dark:text-gray-400">{log.ip_address ?? "—"}</td>
                     <td className="max-w-xs truncate px-4 py-2 text-xs text-gray-600 dark:text-gray-300" title={log.message}>{log.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+        <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <div>
+            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Server Run Logs</h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              One file per backend start. Older files are kept and remain downloadable.
+            </p>
+          </div>
+          <button
+            onClick={() => refetchServerLogs()}
+            disabled={isServerLogsFetching}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 disabled:opacity-50 dark:hover:bg-gray-800"
+            title="Refresh server logs"
+          >
+            <RefreshCw className={`h-4 w-4 ${isServerLogsFetching ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+
+        <div className="border-b border-gray-100 px-4 py-2 text-xs text-gray-500 dark:border-gray-800 dark:text-gray-400">
+          Directory: <span className="font-mono">{serverLogs?.log_dir ?? "—"}</span>
+        </div>
+
+        {isServerLogsLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+          </div>
+        ) : serverLogsError ? (
+          <div className="px-4 py-8 text-center text-sm text-red-500 dark:text-red-400">
+            {getErrorDetail(serverLogsError, "Failed to load server run logs.")}
+          </div>
+        ) : (serverLogs?.files?.length ?? 0) === 0 ? (
+          <div className="py-8 text-center text-sm text-gray-400">No server log files found yet.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-800/50 dark:text-gray-400">
+                <tr>
+                  <th className="px-4 py-2 text-left">Log file</th>
+                  <th className="px-4 py-2 text-left">Last modified</th>
+                  <th className="px-4 py-2 text-left">Size</th>
+                  <th className="px-4 py-2 text-left">Status</th>
+                  <th className="px-4 py-2 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {serverLogs?.files.map((file) => (
+                  <tr key={file.filename} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                    <td className="px-4 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">{file.filename}</td>
+                    <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                      {new Date(file.modified_at).toLocaleString()}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                      {formatByteSize(file.size_bytes)}
+                    </td>
+                    <td className="px-4 py-2 text-xs">
+                      {file.is_current ? (
+                        <span className="rounded bg-green-100 px-1.5 py-0.5 text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                          Current run
+                        </span>
+                      ) : (
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                          Archived run
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        onClick={() => downloadServerLog(file.filename)}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

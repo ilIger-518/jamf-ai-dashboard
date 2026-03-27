@@ -161,3 +161,37 @@ async def delete_by_source(source_url: str, collection_name: str = COLLECTION_NA
     except Exception as exc:
         logger.error("Failed to delete chunks for %s in %s: %s", source_url, collection_name, exc)
         return 0
+
+
+async def get_source_chunks(
+    source_url: str,
+    *,
+    collection_name: str = COLLECTION_NAME,
+    limit: int = 12,
+) -> list[str]:
+    """Return ordered chunks for a source URL to build a readable text preview."""
+    safe_limit = max(1, min(limit, 50))
+    try:
+        client = await _get_chroma_client()
+        collection = await client.get_or_create_collection(collection_name)
+        results = await collection.get(where={"source": source_url}, include=["documents", "metadatas"])
+
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        ordered: list[tuple[int, str]] = []
+
+        for doc, meta in zip(documents, metadatas, strict=False):
+            if not isinstance(doc, str) or not doc.strip():
+                continue
+            idx = 0
+            if isinstance(meta, dict):
+                raw_idx = meta.get("chunk_index")
+                if isinstance(raw_idx, int):
+                    idx = raw_idx
+            ordered.append((idx, doc.strip()))
+
+        ordered.sort(key=lambda item: item[0])
+        return [doc for _, doc in ordered[:safe_limit]]
+    except Exception as exc:
+        logger.warning("Failed to fetch chunks for %s in %s: %s", source_url, collection_name, exc)
+        return []

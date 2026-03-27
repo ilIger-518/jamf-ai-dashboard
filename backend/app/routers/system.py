@@ -1,8 +1,13 @@
 """System info and software-update proxy endpoints."""
 
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from starlette.responses import FileResponse
 
 from app.config import get_settings
 from app.dependencies import AdminUser
@@ -55,6 +60,20 @@ class AIConfigResponse(BaseModel):
     custom_embedding_api_key_set: bool
     custom_embedding_api_key_masked: str | None = None
     message: str | None = None
+
+
+class ServerLogFileInfo(BaseModel):
+    filename: str
+    size_bytes: int
+    created_at: str
+    modified_at: str
+    is_current: bool
+
+
+class ServerLogsIndexResponse(BaseModel):
+    log_dir: str
+    current_log_file: str | None
+    files: list[ServerLogFileInfo]
 
 
 async def _updater(
@@ -127,3 +146,61 @@ async def get_ai_config(_: AdminUser) -> dict:
 @router.post("/ai-config", response_model=AIConfigResponse, summary="Save AI provider config (admin)")
 async def set_ai_config(payload: AIConfigPayload, _: AdminUser) -> dict:
     return await _updater("POST", "/ai-config", payload.model_dump())
+
+
+def _to_iso_utc(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+@router.get("/server-logs", response_model=ServerLogsIndexResponse, summary="List persistent server run logs (admin)")
+async def list_server_logs(_: AdminUser) -> ServerLogsIndexResponse:
+    settings = get_settings()
+    log_dir = Path(settings.server_logs_dir).resolve()
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    current_file_env = os.environ.get("CURRENT_SERVER_LOG_FILE")
+    current_log_path = Path(current_file_env).resolve() if current_file_env else None
+    files: list[ServerLogFileInfo] = []
+    for path in sorted(log_dir.glob("server-*.log"), key=lambda p: p.stat().st_mtime, reverse=True):
+        stat = path.stat()
+        files.append(
+            ServerLogFileInfo(
+                filename=path.name,
+                size_bytes=stat.st_size,
+                created_at=_to_iso_utc(stat.st_ctime),
+                modified_at=_to_iso_utc(stat.st_mtime),
+                is_current=bool(current_log_path and path.resolve() == current_log_path),
+            )
+        )
+
+    return ServerLogsIndexResponse(
+        log_dir=str(log_dir),
+        current_log_file=current_log_path.name if current_log_path else None,
+        files=files,
+    )
+
+
+@router.get(
+    "/server-logs/{filename}",
+    summary="Download a persistent server run log file (admin)",
+)
+async def download_server_log(filename: str, _: AdminUser) -> FileResponse:
+    settings = get_settings()
+    log_dir = Path(settings.server_logs_dir).resolve()
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = Path(filename).name
+    if safe_name != filename or not safe_name.endswith(".log"):
+        raise HTTPException(status_code=400, detail="Invalid log filename")
+
+    log_path = (log_dir / safe_name).resolve()
+    if log_path.parent != log_dir:
+        raise HTTPException(status_code=400, detail="Invalid log path")
+    if not log_path.exists() or not log_path.is_file():
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    return FileResponse(
+        path=str(log_path),
+        media_type="text/plain",
+        filename=safe_name,
+    )

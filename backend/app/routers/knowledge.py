@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal
@@ -18,7 +18,7 @@ from app.models.scrape_job import ScrapeJob
 from app.models.scrape_job_log import ScrapeJobLog
 from app.services.llm import embed_texts
 from app.services.scraper import run_scrape_job
-from app.services.vector_store import delete_by_source
+from app.services.vector_store import delete_by_source, get_source_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +130,17 @@ class SourceResponse(BaseModel):
         )
 
 
+class SourcePreviewResponse(BaseModel):
+    source_id: str
+    title: str
+    source: str
+    doc_type: str
+    chunk_count: int
+    size_bytes: int
+    knowledge_base_name: str | None
+    preview_text: str
+
+
 class KnowledgeBaseCreateRequest(BaseModel):
     name: str
     description: str | None = None
@@ -151,6 +162,8 @@ class KnowledgeBaseResponse(BaseModel):
     embedding_dimension: int | None
     dimension_tag: str | None
     is_default: bool
+    source_count: int = 0
+    total_size_bytes: int = 0
     created_at: str
     updated_at: str
 
@@ -166,6 +179,8 @@ class KnowledgeBaseResponse(BaseModel):
             embedding_dimension=kb.embedding_dimension,
             dimension_tag=kb.dimension_tag,
             is_default=kb.is_default,
+            source_count=0,
+            total_size_bytes=0,
             created_at=kb.created_at.isoformat(),
             updated_at=kb.updated_at.isoformat(),
         )
@@ -263,7 +278,28 @@ async def list_knowledge_bases(_: CurrentUser) -> list[KnowledgeBaseResponse]:
         bases = result.scalars().all()
         if not bases:
             bases = [default_kb]
-    return [KnowledgeBaseResponse.from_orm(kb) for kb in bases]
+
+        doc_stats_result = await session.execute(
+            select(
+                KnowledgeDocument.knowledge_base_id,
+                func.count(KnowledgeDocument.id),
+                func.coalesce(func.sum(KnowledgeDocument.size_bytes), 0),
+            )
+            .group_by(KnowledgeDocument.knowledge_base_id)
+        )
+        doc_stats = {
+            kb_id: {"source_count": int(count), "total_size_bytes": int(total_size)}
+            for kb_id, count, total_size in doc_stats_result.all()
+        }
+
+    out: list[KnowledgeBaseResponse] = []
+    for kb in bases:
+        payload = KnowledgeBaseResponse.from_orm(kb)
+        stats = doc_stats.get(kb.id, {"source_count": 0, "total_size_bytes": 0})
+        payload.source_count = stats["source_count"]
+        payload.total_size_bytes = stats["total_size_bytes"]
+        out.append(payload)
+    return out
 
 
 @router.post("/bases", response_model=KnowledgeBaseResponse, status_code=201)
@@ -335,6 +371,69 @@ async def create_knowledge_base(
         await session.refresh(kb)
 
     return KnowledgeBaseResponse.from_orm(kb)
+
+
+@router.delete("/bases/{knowledge_base_id}", status_code=204)
+async def delete_knowledge_base(knowledge_base_id: str, _: ManageKnowledgeUser) -> None:
+    """Delete a full knowledge base and all associated sources/chunks/jobs. Admin only."""
+    try:
+        kb_id = uuid.UUID(knowledge_base_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid knowledge_base_id") from exc
+
+    async with AsyncSessionLocal() as session:
+        kb = await session.get(KnowledgeBase, kb_id)
+        if not kb:
+            raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+        running_jobs = (
+            await session.execute(
+                select(ScrapeJob).where(
+                    ScrapeJob.knowledge_base_id == kb_id,
+                    ScrapeJob.status.in_(["pending", "running"]),
+                )
+            )
+        ).scalars().all()
+        if running_jobs:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete knowledge base while scrape jobs are running",
+            )
+
+        all_bases = (await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.created_at.asc()))).scalars().all()
+        if len(all_bases) <= 1:
+            raise HTTPException(status_code=409, detail="Cannot delete the last remaining knowledge base")
+
+        docs = (
+            await session.execute(
+                select(KnowledgeDocument).where(KnowledgeDocument.knowledge_base_id == kb_id)
+            )
+        ).scalars().all()
+
+        jobs = (
+            await session.execute(
+                select(ScrapeJob).where(ScrapeJob.knowledge_base_id == kb_id)
+            )
+        ).scalars().all()
+
+        if kb.is_default:
+            replacement = next((base for base in all_bases if base.id != kb.id), None)
+            if replacement:
+                replacement.is_default = True
+
+        for doc in docs:
+            await session.delete(doc)
+
+        for job in jobs:
+            await session.execute(delete(ScrapeJobLog).where(ScrapeJobLog.job_id == job.id))
+            await session.delete(job)
+
+        await session.delete(kb)
+        await session.commit()
+
+    # Delete vector chunks after relational records are removed.
+    for doc in docs:
+        await delete_by_source(doc.source, collection_name=doc.collection_name or "jamf_knowledge")
 
 
 @router.post("/scrape", response_model=ScrapeJobResponse, status_code=202)
@@ -641,3 +740,33 @@ async def delete_source(source_id: str, _: ManageKnowledgeUser) -> None:
         await session.commit()
 
     await delete_by_source(source_url, collection_name=collection_name)
+
+
+@router.get("/sources/{source_id}/preview", response_model=SourcePreviewResponse)
+async def get_source_preview(source_id: str, _: CurrentUser) -> SourcePreviewResponse:
+    """Return a readable preview reconstructed from stored chunks for one source."""
+    async with AsyncSessionLocal() as session:
+        doc = await session.get(KnowledgeDocument, uuid.UUID(source_id))
+        if not doc:
+            raise HTTPException(status_code=404, detail="Source not found")
+        kb = await session.get(KnowledgeBase, doc.knowledge_base_id) if doc.knowledge_base_id else None
+
+    chunks = await get_source_chunks(
+        doc.source,
+        collection_name=doc.collection_name or "jamf_knowledge",
+        limit=12,
+    )
+    preview_text = "\n\n".join(chunks).strip()
+    if not preview_text:
+        preview_text = "No readable preview available for this source yet."
+
+    return SourcePreviewResponse(
+        source_id=str(doc.id),
+        title=doc.title,
+        source=doc.source,
+        doc_type=doc.doc_type,
+        chunk_count=doc.chunk_count,
+        size_bytes=doc.size_bytes,
+        knowledge_base_name=(kb.name if kb else None),
+        preview_text=preview_text,
+    )

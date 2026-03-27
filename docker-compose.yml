@@ -94,6 +94,8 @@ services:
         condition: service_started
     ports:
       - "8000:8000"
+    volumes:
+      - backend_logs:/app/logs/server-runs
     healthcheck:
       test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/v1/health\").read()'"]
       interval: 15s
@@ -171,3 +173,4 @@ volumes:
   redis_data:
   chroma_data:
   ollama_data:
+  backend_logs:

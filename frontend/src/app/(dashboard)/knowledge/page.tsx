@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -19,6 +19,7 @@ import {
   Play,
   StopCircle,
   RotateCcw,
+  Eye,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,17 @@ interface KnowledgeSource {
   ingested_at: string;
 }
 
+interface SourcePreview {
+  source_id: string;
+  title: string;
+  source: string;
+  doc_type: string;
+  chunk_count: number;
+  size_bytes: number;
+  knowledge_base_name: string | null;
+  preview_text: string;
+}
+
 interface KnowledgeBase {
   id: string;
   name: string;
@@ -81,6 +93,8 @@ interface KnowledgeBase {
   embedding_dimension: number | null;
   dimension_tag: string | null;
   is_default: boolean;
+  source_count: number;
+  total_size_bytes: number;
   created_at: string;
   updated_at: string;
 }
@@ -105,6 +119,14 @@ interface ScrapeRuntime {
   cancel_requested: boolean;
 }
 
+interface JobLiveStats {
+  currentPagesPerSecond: number;
+  averagePagesPerSecond: number;
+  currentMbps: number;
+  averageMbps: number;
+  elapsedSeconds: number;
+}
+
 function isInterruptedJob(job: ScrapeJob): boolean {
   return job.status === "failed" && !!job.error?.startsWith("Interrupted:");
 }
@@ -114,6 +136,20 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1048576).toFixed(2)} MB`;
+}
+
+function formatRate(v: number, digits = 2): string {
+  if (!Number.isFinite(v) || v <= 0) return `0.${"0".repeat(digits)}`;
+  return v.toFixed(digits);
+}
+
+function isCpuLimitEnabled(job: ScrapeJob, system?: ScrapeSystemInfo): boolean {
+  if (job.cpu_cap_mode === "core") {
+    const maxCore = system?.max_core_percent;
+    if (!maxCore) return true;
+    return job.cpu_cap_percent < maxCore;
+  }
+  return job.cpu_cap_percent < 100;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -511,6 +547,29 @@ function JobLogsModal({
     refetchInterval: isActive ? 1500 : false,
   });
 
+  const siteEvents = logs
+    .map((line) => {
+      const match = line.message.match(/https?:\/\/\S+/);
+      if (!match) return null;
+      const url = match[0].replace(/[),.;!?]+$/, "");
+      const kind = line.message.startsWith("Visiting:")
+        ? "visit"
+        : line.message.startsWith("Scraped page")
+          ? "scraped"
+          : line.message.startsWith("Skipped")
+            ? "skipped"
+            : "event";
+      return {
+        id: line.id,
+        level: line.level,
+        time: line.created_at,
+        message: line.message,
+        url,
+        kind,
+      };
+    })
+    .filter((event): event is NonNullable<typeof event> => !!event);
+
   useEffect(() => {
     if (!logContainerRef.current) return;
     logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
@@ -541,37 +600,122 @@ function JobLogsModal({
           </div>
         )}
 
-        <div
-          ref={logContainerRef}
-          className="h-[60vh] overflow-y-auto rounded-lg border border-gray-200 bg-gray-950 p-3 font-mono text-xs dark:border-gray-700"
-        >
+        <div className="grid gap-3 md:grid-cols-2">
+          <div
+            ref={logContainerRef}
+            className="h-[60vh] overflow-y-auto rounded-lg border border-gray-200 bg-gray-950 p-3 font-mono text-xs dark:border-gray-700"
+          >
+            {isLoading ? (
+              <div className="flex h-full items-center justify-center text-gray-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
+            ) : logs.length === 0 ? (
+              <p className="text-gray-400">No log lines yet for this job.</p>
+            ) : (
+              <div className="space-y-1">
+                {logs.map((line) => (
+                  <div key={line.id} className="whitespace-pre-wrap break-words">
+                    <span className="text-gray-500">[{new Date(line.created_at).toLocaleTimeString()}]</span>{" "}
+                    <span
+                      className={cn(
+                        "uppercase",
+                        line.level === "error"
+                          ? "text-red-400"
+                          : line.level === "warning"
+                            ? "text-amber-400"
+                            : "text-cyan-300",
+                      )}
+                    >
+                      {line.level}
+                    </span>{" "}
+                    <span className="text-gray-100">{line.message}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="h-[60vh] overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-800/60">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-300">
+              Queried Site Activity
+            </h3>
+            {siteEvents.length === 0 ? (
+              <p className="text-gray-500 dark:text-gray-400">No URL activity captured yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {siteEvents.map((event) => (
+                  <div key={event.id} className="rounded-md border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900/60">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400">{new Date(event.time).toLocaleTimeString()}</span>
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase",
+                          event.kind === "visit"
+                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                            : event.kind === "scraped"
+                              ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                              : event.kind === "skipped"
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
+                        )}
+                      >
+                        {event.kind}
+                      </span>
+                    </div>
+                    <p className="break-all font-mono text-[11px] text-gray-800 dark:text-gray-100">{event.url}</p>
+                    <p className="mt-1 text-[10px] text-gray-500 dark:text-gray-400">{event.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SourcePreviewModal({
+  source,
+  onClose,
+}: {
+  source: KnowledgeSource;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isFetching } = useQuery<SourcePreview>({
+    queryKey: ["knowledge-source-preview", source.id],
+    queryFn: () => api.get<SourcePreview>(`/knowledge/sources/${source.id}/preview`).then((r) => r.data),
+    staleTime: 30_000,
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-4xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900 dark:text-white">Readable Source Preview</h2>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{source.title}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isFetching && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+            <button onClick={onClose} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
+              <X className="h-4 w-4 text-gray-400" />
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-300">
+          <div className="truncate">Source: {source.source}</div>
+          <div className="mt-1">Chunks: {source.chunk_count} • Size: {formatBytes(source.size_bytes)}</div>
+        </div>
+
+        <div className="h-[60vh] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 text-sm leading-relaxed text-gray-800 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-100">
           {isLoading ? (
             <div className="flex h-full items-center justify-center text-gray-400">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-          ) : logs.length === 0 ? (
-            <p className="text-gray-400">No log lines yet for this job.</p>
           ) : (
-            <div className="space-y-1">
-              {logs.map((line) => (
-                <div key={line.id} className="whitespace-pre-wrap break-words">
-                  <span className="text-gray-500">[{new Date(line.created_at).toLocaleTimeString()}]</span>{" "}
-                  <span
-                    className={cn(
-                      "uppercase",
-                      line.level === "error"
-                        ? "text-red-400"
-                        : line.level === "warning"
-                          ? "text-amber-400"
-                          : "text-cyan-300",
-                    )}
-                  >
-                    {line.level}
-                  </span>{" "}
-                  <span className="text-gray-100">{line.message}</span>
-                </div>
-              ))}
-            </div>
+            <pre className="whitespace-pre-wrap font-sans">{data?.preview_text || "No preview available."}</pre>
           )}
         </div>
       </div>
@@ -585,9 +729,13 @@ export default function KnowledgePage() {
   const [newKbName, setNewKbName] = useState("");
   const [newKbDescription, setNewKbDescription] = useState("");
   const [newKbDimensionTag, setNewKbDimensionTag] = useState("");
+  const [sourceSearch, setSourceSearch] = useState("");
   const [settingsJob, setSettingsJob] = useState<ScrapeJob | null>(null);
   const [logsJob, setLogsJob] = useState<ScrapeJob | null>(null);
+  const [previewSource, setPreviewSource] = useState<KnowledgeSource | null>(null);
+  const [liveStatsByJob, setLiveStatsByJob] = useState<Record<string, JobLiveStats>>({});
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const previousSnapshotRef = useRef<Record<string, { pages: number; bytes: number; tsMs: number }>>({});
 
   const { data: knowledgeBases = [], isLoading: basesLoading } = useQuery<KnowledgeBase[]>({
     queryKey: ["knowledge-bases"],
@@ -627,6 +775,22 @@ export default function KnowledgePage() {
     onError: () => toast.error("Failed to delete source"),
   });
 
+  const deleteKnowledgeBase = useMutation({
+    mutationFn: (id: string) => api.delete(`/knowledge/bases/${id}`),
+    onSuccess: () => {
+      toast.success("Knowledge base deleted");
+      qc.invalidateQueries({ queryKey: ["knowledge-bases"] });
+      qc.invalidateQueries({ queryKey: ["knowledge-sources"] });
+      qc.invalidateQueries({ queryKey: ["scrape-jobs"] });
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to delete knowledge base";
+      toast.error(msg);
+    },
+  });
+
   const continueJob = useMutation({
     mutationFn: (id: string) => api.post<ScrapeJob>(`/knowledge/scrape/${id}/continue`).then((r) => r.data),
     onSuccess: () => {
@@ -638,6 +802,25 @@ export default function KnowledgePage() {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
         "Failed to continue job";
+      toast.error(msg);
+    },
+  });
+
+  const toggleCpuLimit = useMutation({
+    mutationFn: ({ job, enable }: { job: ScrapeJob; enable: boolean }) =>
+      api.patch(`/knowledge/scrape/${job.id}`, {
+        action: job.pause_requested ? "pause" : "resume",
+        cpu_cap_mode: "total",
+        cpu_cap_percent: enable ? 70 : 100,
+      }),
+    onSuccess: (_resp, vars) => {
+      toast.success(vars.enable ? "CPU limit enabled" : "CPU limit disabled");
+      qc.invalidateQueries({ queryKey: ["scrape-jobs"] });
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to update CPU limit";
       toast.error(msg);
     },
   });
@@ -668,6 +851,18 @@ export default function KnowledgePage() {
 
   // Poll while any job is running or pending
   const hasActiveJob = jobs.some((j) => j.status === "running" || j.status === "pending");
+
+  const filteredSources = useMemo(() => {
+    const q = sourceSearch.trim().toLowerCase();
+    if (!q) return sources;
+    return sources.filter((s) => {
+      return (
+        s.title.toLowerCase().includes(q) ||
+        s.source.toLowerCase().includes(q) ||
+        (s.knowledge_base_name || "").toLowerCase().includes(q)
+      );
+    });
+  }, [sourceSearch, sources]);
   useEffect(() => {
     if (hasActiveJob) {
       pollingRef.current = setInterval(() => {
@@ -679,6 +874,47 @@ export default function KnowledgePage() {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
   }, [hasActiveJob, qc]);
+
+  useEffect(() => {
+    const nowMs = Date.now();
+    const nextStats: Record<string, JobLiveStats> = {};
+    const nextSnapshots: Record<string, { pages: number; bytes: number; tsMs: number }> = {};
+
+    for (const job of jobs) {
+      const startMs = new Date(job.started_at || job.created_at).getTime();
+      const endMs = job.finished_at ? new Date(job.finished_at).getTime() : nowMs;
+      const elapsedSeconds = Math.max(0.001, (endMs - startMs) / 1000);
+      const averagePagesPerSecond = job.pages_scraped / elapsedSeconds;
+      const averageMbps = ((job.bytes_scraped * 8) / 1_000_000) / elapsedSeconds;
+
+      const previous = previousSnapshotRef.current[job.id];
+      let currentPagesPerSecond = 0;
+      let currentMbps = 0;
+
+      if (previous && !job.finished_at) {
+        const deltaSeconds = Math.max(0.001, (nowMs - previous.tsMs) / 1000);
+        currentPagesPerSecond = Math.max(0, (job.pages_scraped - previous.pages) / deltaSeconds);
+        currentMbps = Math.max(0, (((job.bytes_scraped - previous.bytes) * 8) / 1_000_000) / deltaSeconds);
+      }
+
+      nextStats[job.id] = {
+        currentPagesPerSecond,
+        averagePagesPerSecond,
+        currentMbps,
+        averageMbps,
+        elapsedSeconds,
+      };
+
+      nextSnapshots[job.id] = {
+        pages: job.pages_scraped,
+        bytes: job.bytes_scraped,
+        tsMs: nowMs,
+      };
+    }
+
+    previousSnapshotRef.current = nextSnapshots;
+    setLiveStatsByJob(nextStats);
+  }, [jobs]);
 
   return (
     <div className="space-y-6">
@@ -711,6 +947,7 @@ export default function KnowledgePage() {
         />
       )}
       {logsJob && <JobLogsModal job={logsJob} onClose={() => setLogsJob(null)} />}
+      {previewSource && <SourcePreviewModal source={previewSource} onClose={() => setPreviewSource(null)} />}
 
       <section>
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Knowledge Bases</h2>
@@ -753,7 +990,7 @@ export default function KnowledgePage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                 <tr>
-                  {["Name", "Dimension Tag", "Embedding", "Collection", "Default"].map((h) => (
+                  {["Name", "Dimension Tag", "Embedding", "Collection", "Size", "Default", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -767,7 +1004,24 @@ export default function KnowledgePage() {
                       {(kb.embedding_model || "unknown")} {kb.embedding_dimension ? `(${kb.embedding_dimension})` : ""}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{kb.collection_name}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {formatBytes(kb.total_size_bytes)} ({kb.source_count} sources)
+                    </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{kb.is_default ? "Yes" : "No"}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => {
+                          if (confirm(`Delete knowledge base "${kb.name}" and all its sources/jobs?`)) {
+                            deleteKnowledgeBase.mutate(kb.id);
+                          }
+                        }}
+                        disabled={deleteKnowledgeBase.isPending}
+                        className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950 dark:hover:text-red-400"
+                        title="Delete knowledge base"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -852,6 +1106,19 @@ export default function KnowledgePage() {
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={job.status} />
+                      {liveStatsByJob[job.id] && (
+                        <div className="mt-1 space-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                          <p>
+                            PPS: {formatRate(liveStatsByJob[job.id].currentPagesPerSecond)} /s
+                          </p>
+                          <p>
+                            Avg PPS: {formatRate(liveStatsByJob[job.id].averagePagesPerSecond)} /s
+                          </p>
+                          <p>
+                            Net: {formatRate(liveStatsByJob[job.id].currentMbps)} Mbps now • {formatRate(liveStatsByJob[job.id].averageMbps)} Mbps avg
+                          </p>
+                        </div>
+                      )}
                       {job.error && (
                         <p className="mt-0.5 text-xs text-red-500 dark:text-red-400 max-w-xs truncate" title={job.error}>
                           {job.error}
@@ -869,6 +1136,20 @@ export default function KnowledgePage() {
                         <FileText className="h-3.5 w-3.5" />
                         Logs
                       </button>
+                      {(job.status === "pending" || job.status === "running") && (
+                        <button
+                          onClick={() =>
+                            toggleCpuLimit.mutate({
+                              job,
+                              enable: !isCpuLimitEnabled(job, systemInfo),
+                            })
+                          }
+                          disabled={toggleCpuLimit.isPending}
+                          className="mr-2 inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                          {isCpuLimitEnabled(job, systemInfo) ? "Disable CPU Limit" : "Enable CPU Limit"}
+                        </button>
+                      )}
                       {(job.status === "pending" || job.status === "running") && (
                         <button
                           onClick={() => setSettingsJob(job)}
@@ -915,32 +1196,42 @@ export default function KnowledgePage() {
         <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
           Stored Sources{" "}
           <span className="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800 dark:text-gray-400">
-            {sources.length}
+            {filteredSources.length}
           </span>
         </h2>
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+          <div className="border-b border-gray-200 p-3 dark:border-gray-700">
+            <input
+              value={sourceSearch}
+              onChange={(e) => setSourceSearch(e.target.value)}
+              placeholder="Search sources by title, URL, or knowledge base..."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            />
+          </div>
           {sourcesLoading ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
             </div>
-          ) : sources.length === 0 ? (
+          ) : filteredSources.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
               <BookOpen className="h-8 w-8 text-gray-300 dark:text-gray-600" />
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                No documents ingested yet. Run a scrape job to populate the knowledge base.
+                {sources.length === 0
+                  ? "No documents ingested yet. Run a scrape job to populate the knowledge base."
+                  : "No sources match your search."}
               </p>
             </div>
           ) : (
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                 <tr>
-                  {["Title", "URL", "Knowledge Base", "Chunks", "Size", "Ingested", ""].map((h) => (
+                  {["Title", "URL", "Knowledge Base", "Chunks", "Size", "Ingested", "", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {sources.map((s) => (
+                {filteredSources.map((s) => (
                   <tr key={s.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="max-w-xs truncate px-4 py-3 font-medium text-gray-900 dark:text-white" title={s.title}>
                       {s.title}
@@ -961,6 +1252,15 @@ export default function KnowledgePage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">
                       {new Date(s.ingested_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => setPreviewSource(s)}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Preview
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
