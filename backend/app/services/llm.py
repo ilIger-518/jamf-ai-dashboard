@@ -65,6 +65,41 @@ def _openai_chat_url(base_url: str) -> str:
     return f"{base}/v1/chat/completions"
 
 
+def _response_excerpt(text: str, *, limit: int = 300) -> str:
+    normalized = " ".join(text.split())
+    if not normalized:
+        return ""
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3] + "..."
+
+
+def _custom_provider_error_detail(
+    exc: httpx.HTTPStatusError,
+    *,
+    use_case: UseCase,
+    base_url: str,
+) -> str:
+    status = exc.response.status_code
+    body = _response_excerpt(exc.response.text)
+    target = f"{base_url.rstrip('/')}/v1"
+
+    if status == 401:
+        return f"Custom {use_case} request was rejected with 401 Unauthorized. Check the API key."
+    if status == 403:
+        return f"Custom {use_case} request was rejected with 403 Forbidden. Check API key permissions."
+    if status == 404:
+        return (
+            f"Custom {use_case} endpoint returned 404 Not Found. "
+            f"Check the base URL. Expected an OpenAI-compatible API at {target}."
+        )
+    if status == 429:
+        return f"Custom {use_case} request was rate-limited by the provider (429)."
+    if body:
+        return f"Custom {use_case} provider returned HTTP {status}: {body}"
+    return f"Custom {use_case} provider returned HTTP {status}."
+
+
 def _extract_openai_message_content(payload: dict[str, Any]) -> str:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
@@ -320,7 +355,7 @@ async def _complete_custom(
         logger.error("Custom AI error: %s — %s", exc.response.status_code, exc.response.text)
         raise HTTPException(
             status_code=502,
-            detail="Custom AI provider returned an error. Check backend logs.",
+            detail=_custom_provider_error_detail(exc, use_case=use_case, base_url=cfg.custom_ai_base_url),
         )
     except ValueError as exc:
         logger.exception("Invalid custom AI JSON response: %s", exc)
@@ -395,7 +430,7 @@ async def _stream_custom(
         logger.error("Custom AI error: %s — %s", exc.response.status_code, exc.response.text)
         raise HTTPException(
             status_code=502,
-            detail="Custom AI provider returned an error. Check backend logs.",
+            detail=_custom_provider_error_detail(exc, use_case=use_case, base_url=cfg.custom_ai_base_url),
         )
     except ValueError as exc:
         logger.exception("Invalid custom AI stream JSON response: %s", exc)
@@ -493,7 +528,7 @@ async def _embed_custom(cfg: Settings, texts: list[str]) -> list[list[float]]:
         logger.error("Custom embedding error: %s — %s", exc.response.status_code, exc.response.text)
         raise HTTPException(
             status_code=502,
-            detail="Custom AI provider returned an embedding error. Check backend logs.",
+            detail=_custom_provider_error_detail(exc, use_case="embedding", base_url=cfg.custom_ai_base_url),
         )
     except ValueError as exc:
         logger.exception("Invalid custom embedding JSON response: %s", exc)

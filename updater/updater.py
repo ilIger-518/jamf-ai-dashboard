@@ -712,7 +712,9 @@ async def update_ai_config(payload: AIConfigPayload) -> AIConfigResponse:
     if custom_embedding_api_key:
         _save_env_value("CUSTOM_EMBEDDING_API_KEY", custom_embedding_api_key)
 
-    code, out = _run(["docker", "compose", "up", "-d", "backend"])
+    # AI settings are loaded via docker-compose env_file. Recreate the backend
+    # container so updated .env values are actually injected into the process.
+    code, out = _run(["docker", "compose", "up", "-d", "--force-recreate", "backend"])
     if code != 0:
         raise HTTPException(status_code=502, detail=out or "Failed to restart backend with updated AI settings")
 
