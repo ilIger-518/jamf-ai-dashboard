@@ -38,6 +38,13 @@ interface JamfServer {
   is_active: boolean;
 }
 
+interface KnowledgeBase {
+  id: string;
+  name: string;
+  dimension_tag: string | null;
+  is_default: boolean;
+}
+
 interface Message {
   id?: string;
   role: "user" | "assistant";
@@ -92,6 +99,8 @@ export default function AiAssistantPage() {
   const [renameValue, setRenameValue] = useState("");
   const [botMode, setBotMode] = useState<"rag_readonly" | "policy_builder">("rag_readonly");
   const [targetServerId, setTargetServerId] = useState<string>("");
+  const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([]);
+  const [draggingKnowledgeBaseId, setDraggingKnowledgeBaseId] = useState<string | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingText, setThinkingText] = useState("Idle");
   const [streamReply, setStreamReply] = useState("");
@@ -122,6 +131,24 @@ export default function AiAssistantPage() {
     queryFn: () => api.get<JamfServer[]>("/servers").then((r) => r.data),
     staleTime: 60_000,
   });
+
+  const { data: knowledgeBases = [] } = useQuery<KnowledgeBase[]>({
+    queryKey: ["knowledge-bases"],
+    queryFn: () => api.get<KnowledgeBase[]>("/knowledge/bases").then((r) => r.data),
+  });
+
+  useEffect(() => {
+    if (knowledgeBases.length === 0) return;
+    if (selectedKnowledgeBaseIds.length > 0) {
+      const existing = new Set(knowledgeBases.map((kb) => kb.id));
+      const filtered = selectedKnowledgeBaseIds.filter((id) => existing.has(id));
+      if (filtered.length !== selectedKnowledgeBaseIds.length) {
+        setSelectedKnowledgeBaseIds(filtered);
+      }
+      return;
+    }
+    setSelectedKnowledgeBaseIds(knowledgeBases.map((kb) => kb.id));
+  }, [knowledgeBases, selectedKnowledgeBaseIds]);
 
   useEffect(() => {
     if (!targetServerId && servers.length > 0) {
@@ -167,6 +194,7 @@ export default function AiAssistantPage() {
         session_id: activeSessionId,
         bot_mode: botMode,
         target_server_id: botMode === "policy_builder" ? targetServerId || null : null,
+        knowledge_base_ids: botMode === "rag_readonly" ? selectedKnowledgeBaseIds : null,
       }),
       signal,
     });
@@ -309,6 +337,37 @@ export default function AiAssistantPage() {
   };
 
   const displayMessages = activeSessionId ? localMessages : localMessages;
+  const orderedSelectedKnowledgeBases = selectedKnowledgeBaseIds
+    .map((id) => knowledgeBases.find((kb) => kb.id === id))
+    .filter((kb): kb is KnowledgeBase => !!kb);
+  const unselectedKnowledgeBases = knowledgeBases.filter(
+    (kb) => !selectedKnowledgeBaseIds.includes(kb.id),
+  );
+  const orderedKnowledgeBases = [...orderedSelectedKnowledgeBases, ...unselectedKnowledgeBases];
+
+  const toggleKnowledgeBase = (kbId: string) => {
+    setSelectedKnowledgeBaseIds((prev) => {
+      if (prev.includes(kbId)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((id) => id !== kbId);
+      }
+      return [...prev, kbId];
+    });
+  };
+
+  const moveKnowledgeBase = (dragId: string, targetId: string) => {
+    if (dragId === targetId) return;
+    setSelectedKnowledgeBaseIds((prev) => {
+      const next = [...prev];
+      const from = next.indexOf(dragId);
+      const to = next.indexOf(targetId);
+      if (from < 0 || to < 0) return prev;
+      next.splice(from, 1);
+      next.splice(to, 0, dragId);
+      return next;
+    });
+  };
+
   const lastAssistantMessage = [...displayMessages].reverse().find((m) => m.role === "assistant");
   const hasPendingApproval =
     botMode === "policy_builder" &&
@@ -470,6 +529,57 @@ export default function AiAssistantPage() {
             )}
           </div>
         </div>
+
+        {botMode === "rag_readonly" && knowledgeBases.length > 0 && (
+          <div className="border-b border-gray-200 bg-gray-50 px-6 py-3 dark:border-gray-700 dark:bg-gray-900/50">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Knowledge Bases (drag to set priority)
+            </p>
+            <div className="grid gap-1.5 md:grid-cols-2">
+              {orderedKnowledgeBases.map((kb, index) => (
+                <label
+                  key={kb.id}
+                  draggable={selectedKnowledgeBaseIds.includes(kb.id)}
+                  onDragStart={() => {
+                    if (!selectedKnowledgeBaseIds.includes(kb.id)) return;
+                    setDraggingKnowledgeBaseId(kb.id);
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    if (!draggingKnowledgeBaseId) return;
+                    if (!selectedKnowledgeBaseIds.includes(kb.id)) return;
+                    moveKnowledgeBase(draggingKnowledgeBaseId, kb.id);
+                    setDraggingKnowledgeBaseId(null);
+                  }}
+                  className={cn(
+                    "flex cursor-move items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs dark:border-gray-600 dark:bg-gray-800",
+                    draggingKnowledgeBaseId === kb.id && "opacity-60",
+                    !selectedKnowledgeBaseIds.includes(kb.id) && "cursor-default opacity-75",
+                  )}
+                >
+                  <span className="w-4 text-[10px] font-semibold text-gray-500 dark:text-gray-400">
+                    {selectedKnowledgeBaseIds.includes(kb.id) ? index + 1 : "-"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={selectedKnowledgeBaseIds.includes(kb.id)}
+                    onChange={() => toggleKnowledgeBase(kb.id)}
+                    className="h-3.5 w-3.5 rounded accent-blue-600"
+                  />
+                  <span className="truncate font-medium text-gray-700 dark:text-gray-200">{kb.name}</span>
+                  {kb.dimension_tag && (
+                    <span className="ml-auto rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                      {kb.dimension_tag}
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <div className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+              Priority flows top to bottom. Highest priority knowledge base is queried first.
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-6">

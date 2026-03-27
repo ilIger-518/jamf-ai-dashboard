@@ -18,13 +18,14 @@ from app.database import AsyncSessionLocal
 from app.dependencies import CurrentUser, get_user_permissions
 from app.models.ai import ChatMessage, ChatSession
 from app.models.device import Device
+from app.models.knowledge_base import KnowledgeBase
 from app.models.patch import PatchTitle
 from app.models.policy import Policy
 from app.models.server import JamfServer
 from app.models.smart_group import SmartGroup
 from app.services.encryption import decrypt
 from app.services.llm import complete_chat, stream_chat
-from app.services.vector_store import query_similar
+from app.services.vector_store import query_similar_multi
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,7 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     bot_mode: Literal["rag_readonly", "policy_builder"] = "rag_readonly"
     target_server_id: str | None = None
+    knowledge_base_ids: list[str] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -685,6 +687,66 @@ async def _stream_ollama(history: list[dict]):
         raise HTTPException(status_code=500, detail="Unexpected error calling the AI service.")
 
 
+async def _resolve_knowledge_base_collections(knowledge_base_ids: list[str] | None) -> list[str]:
+    """Resolve selected knowledge base IDs to ordered Chroma collection names."""
+    async with AsyncSessionLocal() as db:
+        if not knowledge_base_ids:
+            default_kb = (
+                await db.execute(
+                    select(KnowledgeBase)
+                    .where(KnowledgeBase.is_default.is_(True))
+                    .order_by(KnowledgeBase.created_at.asc())
+                )
+            ).scalar_one_or_none()
+            if default_kb:
+                return [default_kb.collection_name]
+            return ["jamf_knowledge"]
+
+        parsed_ids: list[uuid_lib.UUID] = []
+        for raw in knowledge_base_ids:
+            try:
+                parsed_ids.append(uuid_lib.UUID(raw))
+            except (TypeError, ValueError):
+                continue
+
+        if not parsed_ids:
+            return ["jamf_knowledge"]
+
+        result = await db.execute(
+            select(KnowledgeBase).where(KnowledgeBase.id.in_(parsed_ids))
+        )
+        kb_by_id = {kb.id: kb for kb in result.scalars().all()}
+
+        collections: list[str] = []
+        seen: set[str] = set()
+        for kb_id in parsed_ids:
+            kb = kb_by_id.get(kb_id)
+            if not kb:
+                continue
+            if kb.collection_name in seen:
+                continue
+            seen.add(kb.collection_name)
+            collections.append(kb.collection_name)
+
+        return collections or ["jamf_knowledge"]
+
+
+async def _build_rag_context(message: str, knowledge_base_ids: list[str] | None) -> tuple[str, list[str]]:
+    """Build RAG context from one or more selected knowledge bases in priority order."""
+    collection_names = await _resolve_knowledge_base_collections(knowledge_base_ids)
+    rag_chunks = await query_similar_multi(message, collection_names=collection_names, n_results=5)
+
+    sources: list[str] = []
+    rag_context = ""
+    if rag_chunks:
+        rag_context = "\n\nRelevant documentation from the knowledge base:\n"
+        for chunk in rag_chunks:
+            rag_context += f"\n---\nSource: {chunk['source']}\n{chunk['text']}\n"
+            if chunk["source"] not in sources:
+                sources.append(chunk["source"])
+    return rag_context, sources
+
+
 # ---------------------------------------------------------------------------
 # Session endpoints
 # ---------------------------------------------------------------------------
@@ -792,15 +854,7 @@ async def chat(current_user: CurrentUser, body: ChatRequest) -> ChatResponse:
     bot_mode = body.bot_mode
 
     # RAG: retrieve relevant chunks from the knowledge base
-    rag_chunks = await query_similar(body.message, n_results=5)
-    sources: list[str] = []
-    rag_context = ""
-    if rag_chunks:
-        rag_context = "\n\nRelevant documentation from the knowledge base:\n"
-        for chunk in rag_chunks:
-            rag_context += f"\n---\nSource: {chunk['source']}\n{chunk['text']}\n"
-            if chunk["source"] not in sources:
-                sources.append(chunk["source"])
+    rag_context, sources = await _build_rag_context(body.message, body.knowledge_base_ids)
 
     async with AsyncSessionLocal() as db:
         # Resolve or create the session
@@ -907,16 +961,8 @@ async def chat_stream(current_user: CurrentUser, body: ChatRequest) -> Streaming
             context = await _get_context_stats()
             bot_mode = body.bot_mode
 
-            yield _ndjson_event({"type": "stage", "message": "Searching knowledge base..."})
-            rag_chunks = await query_similar(body.message, n_results=5)
-            sources: list[str] = []
-            rag_context = ""
-            if rag_chunks:
-                rag_context = "\n\nRelevant documentation from the knowledge base:\n"
-                for chunk in rag_chunks:
-                    rag_context += f"\n---\nSource: {chunk['source']}\n{chunk['text']}\n"
-                    if chunk["source"] not in sources:
-                        sources.append(chunk["source"])
+            yield _ndjson_event({"type": "stage", "message": "Searching selected knowledge bases..."})
+            rag_context, sources = await _build_rag_context(body.message, body.knowledge_base_ids)
 
             yield _ndjson_event({"type": "stage", "message": "Loading session history..."})
             async with AsyncSessionLocal() as db:

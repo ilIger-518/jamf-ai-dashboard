@@ -29,6 +29,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.knowledge import KnowledgeDocument
+from app.models.knowledge_base import KnowledgeBase
 from app.models.scrape_job import ScrapeJob
 from app.models.scrape_job_log import ScrapeJobLog
 from app.services.llm import complete_chat
@@ -311,6 +312,9 @@ async def run_scrape_job(job_id: str) -> None:
     await _append_job_log(job_id, "Job started")
 
     continued_from_job_id: uuid.UUID | None = None
+    knowledge_base_id: uuid.UUID | None = None
+    knowledge_collection_name = "jamf_knowledge"
+    knowledge_base_name = "default"
 
     async with AsyncSessionLocal() as session:
         job = await session.get(ScrapeJob, uuid.UUID(job_id))
@@ -323,11 +327,35 @@ async def run_scrape_job(job_id: str) -> None:
         max_size_bytes = (job.max_size_mb * 1024 * 1024) if job.max_size_mb else None
         topic_filter = job.topic_filter or ""
         continued_from_job_id = job.continued_from_job_id
+        knowledge_base_id = job.knowledge_base_id
+
+        if knowledge_base_id:
+            kb = await session.get(KnowledgeBase, knowledge_base_id)
+        else:
+            kb = (
+                await session.execute(
+                    select(KnowledgeBase)
+                    .where(KnowledgeBase.is_default.is_(True))
+                    .order_by(KnowledgeBase.created_at.asc())
+                )
+            ).scalar_one_or_none()
+            if kb:
+                job.knowledge_base_id = kb.id
+                knowledge_base_id = kb.id
+
+        if kb:
+            knowledge_collection_name = kb.collection_name
+            knowledge_base_name = kb.name
 
         job.status = "running"
         job.started_at = datetime.now(UTC)
         job.last_url = None
         await session.commit()
+
+    await _append_job_log(
+        job_id,
+        f"Knowledge base scope: {knowledge_base_name} ({knowledge_collection_name})",
+    )
 
     visited: set[str] = set()
     queue: deque[str] = deque()
@@ -356,7 +384,10 @@ async def run_scrape_job(job_id: str) -> None:
         if continued_from_job_id:
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
-                    select(KnowledgeDocument.source).where(KnowledgeDocument.doc_type == "url")
+                    select(KnowledgeDocument.source).where(
+                        KnowledgeDocument.doc_type == "url",
+                        KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                    )
                 )
                 resumed_urls = {
                     _normalize(source)
@@ -548,6 +579,7 @@ async def run_scrape_job(job_id: str) -> None:
                     title=title,
                     text=text,
                     num_thread=embedding_threads,
+                    collection_name=knowledge_collection_name,
                 )
 
                 bytes_scraped += len(html.encode("utf-8", errors="replace"))
@@ -556,7 +588,10 @@ async def run_scrape_job(job_id: str) -> None:
                 async with AsyncSessionLocal() as session:
                     existing = (
                         await session.execute(
-                            select(KnowledgeDocument).where(KnowledgeDocument.source == url)
+                            select(KnowledgeDocument).where(
+                                KnowledgeDocument.source == url,
+                                KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                            )
                         )
                     ).scalar_one_or_none()
                     doc_size = len(text.encode("utf-8", errors="replace"))
@@ -572,7 +607,8 @@ async def run_scrape_job(job_id: str) -> None:
                                 doc_type="url",
                                 chunk_count=chunk_count,
                                 size_bytes=doc_size,
-                                collection_name="jamf_knowledge",
+                                collection_name=knowledge_collection_name,
+                                knowledge_base_id=knowledge_base_id,
                             )
                         )
                     await session.commit()

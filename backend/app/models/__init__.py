@@ -5,6 +5,7 @@ from app.models.compliance import ComplianceResult, SecurityStatus
 from app.models.dashboard_log import DashboardLog
 from app.models.device import Device, DeviceApplication, DevicePolicy
 from app.models.knowledge import KnowledgeDocument
+from app.models.knowledge_base import KnowledgeBase
 from app.models.patch import PatchTitle
 from app.models.policy import Policy
 from app.models.role import Role
@@ -25,6 +26,7 @@ __all__ = [
     "DevicePolicy",
     "JamfServer",
     "KnowledgeDocument",
+    "KnowledgeBase",
     "PatchTitle",
     "PendingAction",
     "Policy",

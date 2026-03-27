@@ -30,6 +30,9 @@ interface ScrapeJob {
   max_pages: number | null;
   max_size_mb: number | null;
   topic_filter: string | null;
+  knowledge_base_id: string | null;
+  knowledge_base_name: string | null;
+  knowledge_base_dimension_tag: string | null;
   status: string;
   pages_scraped: number;
   pages_found: number;
@@ -62,7 +65,24 @@ interface KnowledgeSource {
   doc_type: string;
   chunk_count: number;
   size_bytes: number;
+  knowledge_base_id: string | null;
+  knowledge_base_name: string | null;
+  knowledge_base_dimension_tag: string | null;
   ingested_at: string;
+}
+
+interface KnowledgeBase {
+  id: string;
+  name: string;
+  description: string | null;
+  collection_name: string;
+  embedding_provider: string | null;
+  embedding_model: string | null;
+  embedding_dimension: number | null;
+  dimension_tag: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 interface ScrapeJobLog {
@@ -114,7 +134,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function NewScrapeModal({ onClose }: { onClose: () => void }) {
+function NewScrapeModal({
+  onClose,
+  knowledgeBases,
+}: {
+  onClose: () => void;
+  knowledgeBases: KnowledgeBase[];
+}) {
   const qc = useQueryClient();
   const [domain, setDomain] = useState("");
   const [unlimited, setUnlimited] = useState(false);
@@ -122,6 +148,13 @@ function NewScrapeModal({ onClose }: { onClose: () => void }) {
   const [limitSize, setLimitSize] = useState(false);
   const [maxSizeMb, setMaxSizeMb] = useState(500);
   const [topicFilter, setTopicFilter] = useState("");
+  const [knowledgeBaseId, setKnowledgeBaseId] = useState<string>(knowledgeBases[0]?.id ?? "");
+
+  useEffect(() => {
+    if (!knowledgeBaseId && knowledgeBases[0]?.id) {
+      setKnowledgeBaseId(knowledgeBases[0].id);
+    }
+  }, [knowledgeBaseId, knowledgeBases]);
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -130,6 +163,7 @@ function NewScrapeModal({ onClose }: { onClose: () => void }) {
         max_pages: unlimited ? null : maxPages,
         max_size_mb: limitSize ? maxSizeMb : null,
         topic_filter: topicFilter || null,
+        knowledge_base_id: knowledgeBaseId || null,
       }).then((r) => r.data),
     onSuccess: () => {
       toast.success("Scrape job started");
@@ -155,6 +189,27 @@ function NewScrapeModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Knowledge base
+            </label>
+            <select
+              value={knowledgeBaseId}
+              onChange={(e) => setKnowledgeBaseId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            >
+              {knowledgeBases.map((kb) => (
+                <option key={kb.id} value={kb.id}>
+                  {kb.name}
+                  {kb.dimension_tag ? ` (${kb.dimension_tag})` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-gray-400">
+              The scrape output is isolated to this knowledge base collection.
+            </p>
+          </div>
+
           <div>
             <label className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
               Domain / Start URL
@@ -527,9 +582,17 @@ function JobLogsModal({
 export default function KnowledgePage() {
   const qc = useQueryClient();
   const [showModal, setShowModal] = useState(false);
+  const [newKbName, setNewKbName] = useState("");
+  const [newKbDescription, setNewKbDescription] = useState("");
+  const [newKbDimensionTag, setNewKbDimensionTag] = useState("");
   const [settingsJob, setSettingsJob] = useState<ScrapeJob | null>(null);
   const [logsJob, setLogsJob] = useState<ScrapeJob | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const { data: knowledgeBases = [], isLoading: basesLoading } = useQuery<KnowledgeBase[]>({
+    queryKey: ["knowledge-bases"],
+    queryFn: () => api.get<KnowledgeBase[]>("/knowledge/bases").then((r) => r.data),
+  });
 
   const { data: jobs = [], isLoading: jobsLoading } = useQuery<ScrapeJob[]>({
     queryKey: ["scrape-jobs"],
@@ -579,6 +642,30 @@ export default function KnowledgePage() {
     },
   });
 
+  const createKnowledgeBase = useMutation({
+    mutationFn: () =>
+      api
+        .post<KnowledgeBase>("/knowledge/bases", {
+          name: newKbName,
+          description: newKbDescription || null,
+          dimension_tag: newKbDimensionTag || null,
+        })
+        .then((r) => r.data),
+    onSuccess: () => {
+      toast.success("Knowledge base created");
+      setNewKbName("");
+      setNewKbDescription("");
+      setNewKbDimensionTag("");
+      qc.invalidateQueries({ queryKey: ["knowledge-bases"] });
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to create knowledge base";
+      toast.error(msg);
+    },
+  });
+
   // Poll while any job is running or pending
   const hasActiveJob = jobs.some((j) => j.status === "running" || j.status === "pending");
   useEffect(() => {
@@ -611,7 +698,7 @@ export default function KnowledgePage() {
         </button>
       </div>
 
-      {showModal && <NewScrapeModal onClose={() => setShowModal(false)} />}
+      {showModal && <NewScrapeModal onClose={() => setShowModal(false)} knowledgeBases={knowledgeBases} />}
       {settingsJob && systemInfo && (
         <JobSettingsModal
           job={settingsJob}
@@ -624,6 +711,70 @@ export default function KnowledgePage() {
         />
       )}
       {logsJob && <JobLogsModal job={logsJob} onClose={() => setLogsJob(null)} />}
+
+      <section>
+        <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Knowledge Bases</h2>
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+          <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+            <div className="grid gap-2 md:grid-cols-4">
+              <input
+                value={newKbName}
+                onChange={(e) => setNewKbName(e.target.value)}
+                placeholder="Knowledge base name"
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              />
+              <input
+                value={newKbDimensionTag}
+                onChange={(e) => setNewKbDimensionTag(e.target.value)}
+                placeholder="Dimension tag (e.g. 4096-openai)"
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              />
+              <input
+                value={newKbDescription}
+                onChange={(e) => setNewKbDescription(e.target.value)}
+                placeholder="Description (optional)"
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              />
+              <button
+                onClick={() => createKnowledgeBase.mutate()}
+                disabled={!newKbName.trim() || createKnowledgeBase.isPending}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {createKnowledgeBase.isPending ? "Creating..." : "Create Knowledge Base"}
+              </button>
+            </div>
+          </div>
+
+          {basesLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
+                <tr>
+                  {["Name", "Dimension Tag", "Embedding", "Collection", "Default"].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {knowledgeBases.map((kb) => (
+                  <tr key={kb.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{kb.name}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">{kb.dimension_tag || "—"}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
+                      {(kb.embedding_model || "unknown")} {kb.embedding_dimension ? `(${kb.embedding_dimension})` : ""}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{kb.collection_name}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{kb.is_default ? "Yes" : "No"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
 
       {/* Scrape Jobs */}
       <section>
@@ -642,7 +793,7 @@ export default function KnowledgePage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                 <tr>
-                  {["Domain", "Topic Filter", "Progress", "Status", "Finished", ""].map((h) => (
+                  {"Domain", "Knowledge Base", "Topic Filter", "Progress", "Status", "Finished", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -652,6 +803,10 @@ export default function KnowledgePage() {
                   <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="max-w-xs truncate px-4 py-3 font-medium text-gray-900 dark:text-white" title={job.domain}>
                       {job.domain.replace(/^https?:\/\//, "")}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
+                      {job.knowledge_base_name || "Default"}
+                      {job.knowledge_base_dimension_tag ? ` (${job.knowledge_base_dimension_tag})` : ""}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs italic">
                       {job.topic_filter ?? <span className="not-italic text-gray-300 dark:text-gray-600">all pages</span>}
@@ -779,7 +934,7 @@ export default function KnowledgePage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                 <tr>
-                  {["Title", "URL", "Chunks", "Size", "Ingested", ""].map((h) => (
+                  {["Title", "URL", "Knowledge Base", "Chunks", "Size", "Ingested", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -795,6 +950,10 @@ export default function KnowledgePage() {
                         {s.source.replace(/^https?:\/\//, "").slice(0, 60)}
                         {s.source.length > 67 ? "…" : ""}
                       </a>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
+                      {s.knowledge_base_name || "Default"}
+                      {s.knowledge_base_dimension_tag ? ` (${s.knowledge_base_dimension_tag})` : ""}
                     </td>
                     <td className="px-4 py-3 text-gray-500">{s.chunk_count}</td>
                     <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">

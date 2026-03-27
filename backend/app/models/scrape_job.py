@@ -20,6 +20,9 @@ class ScrapeJob(Base):
     max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = unlimited
     max_size_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = no size limit
     topic_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
+    knowledge_base_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
 
     # "pending" | "running" | "completed" | "completed_with_errors" | "failed"
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)

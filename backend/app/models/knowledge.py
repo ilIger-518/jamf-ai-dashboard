@@ -24,6 +24,9 @@ class KnowledgeDocument(Base):
     doc_type: Mapped[str] = mapped_column(String(32), nullable=False)  # "pdf" | "markdown" | "url"
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     size_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    knowledge_base_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     # ChromaDB collection this document's chunks belong to
     collection_name: Mapped[str] = mapped_column(String(128), default="jamf_docs", nullable=False)
 

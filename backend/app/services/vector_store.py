@@ -45,6 +45,7 @@ async def ingest_document(
     title: str,
     text: str,
     num_thread: int | None = None,
+    collection_name: str = COLLECTION_NAME,
 ) -> tuple[int, list[str]]:
     """
     Chunk, embed, and store a document in ChromaDB.
@@ -55,7 +56,7 @@ async def ingest_document(
         return 0, []
 
     # Replace prior embeddings for the same source so retries/continuations do not duplicate chunks.
-    await delete_by_source(source_url)
+    await delete_by_source(source_url, collection_name=collection_name)
 
     try:
         embeddings = await _embed(chunks, num_thread=num_thread)
@@ -69,18 +70,22 @@ async def ingest_document(
     ]
 
     client = await _get_chroma_client()
-    collection = await client.get_or_create_collection(COLLECTION_NAME)
+    collection = await client.get_or_create_collection(collection_name)
     await collection.add(
         ids=ids,
         embeddings=embeddings,
         documents=chunks,
         metadatas=metadatas,
     )
-    logger.info("Ingested %d chunks from %s", len(chunks), source_url)
+    logger.info("Ingested %d chunks from %s into collection %s", len(chunks), source_url, collection_name)
     return len(chunks), ids
 
 
-async def query_similar(query: str, n_results: int = 5) -> list[dict[str, Any]]:
+async def query_similar(
+    query: str,
+    n_results: int = 5,
+    collection_name: str = COLLECTION_NAME,
+) -> list[dict[str, Any]]:
     """
     Embed a query and retrieve the top-n similar chunks from ChromaDB.
     Returns list of {text, source, title}.
@@ -93,14 +98,14 @@ async def query_similar(query: str, n_results: int = 5) -> list[dict[str, Any]]:
 
     try:
         client = await _get_chroma_client()
-        collection = await client.get_or_create_collection(COLLECTION_NAME)
+        collection = await client.get_or_create_collection(collection_name)
         results = await collection.query(
             query_embeddings=[embeddings[0]],
             n_results=n_results,
             include=["documents", "metadatas", "distances"],
         )
     except Exception as exc:
-        logger.warning("ChromaDB query failed: %s", exc)
+        logger.warning("ChromaDB query failed for collection %s: %s", collection_name, exc)
         return []
 
     hits: list[dict[str, Any]] = []
@@ -112,16 +117,47 @@ async def query_similar(query: str, n_results: int = 5) -> list[dict[str, Any]]:
     return hits
 
 
-async def delete_by_source(source_url: str) -> int:
+async def query_similar_multi(
+    query: str,
+    collection_names: list[str],
+    n_results: int = 5,
+) -> list[dict[str, Any]]:
+    """
+    Query multiple collections in priority order and return merged hits.
+    Duplicate sources are de-duplicated while preserving first-hit order.
+    """
+    hits: list[dict[str, Any]] = []
+    seen_sources: set[str] = set()
+
+    for collection_name in collection_names:
+        collection_hits = await query_similar(
+            query,
+            n_results=n_results,
+            collection_name=collection_name,
+        )
+        for hit in collection_hits:
+            source = str(hit.get("source") or "")
+            if source and source in seen_sources:
+                continue
+            if source:
+                seen_sources.add(source)
+            hits.append(hit)
+            if len(hits) >= n_results:
+                return hits
+
+    return hits
+
+
+async def delete_by_source(source_url: str, collection_name: str = COLLECTION_NAME) -> int:
     """Remove all chunks for a given source URL. Returns count deleted."""
     try:
         client = await _get_chroma_client()
-        collection = await client.get_or_create_collection(COLLECTION_NAME)
+        collection = await client.get_or_create_collection(collection_name)
         results = await collection.get(where={"source": source_url}, include=["documents"])
         ids = results.get("ids", [])
         if ids:
             await collection.delete(ids=ids)
         return len(ids)
     except Exception as exc:
-        logger.error("Failed to delete chunks for %s: %s", source_url, exc)
+        logger.error("Failed to delete chunks for %s in %s: %s", source_url, collection_name, exc)
         return 0
