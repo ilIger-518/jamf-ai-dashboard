@@ -793,7 +793,7 @@ export default function KnowledgePage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                 <tr>
-                  {"Domain", "Knowledge Base", "Topic Filter", "Progress", "Status", "Finished", ""].map((h) => (
+                  {["Domain", "Knowledge Base", "Topic Filter", "Progress", "Status", "Finished", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
