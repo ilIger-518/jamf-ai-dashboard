@@ -46,7 +46,11 @@ async def get_sync_status(server_id: str) -> str:
     """Return 'running', 'idle', or 'error' from Redis (default: 'idle')."""
     redis = await get_redis()
     val = await redis.get(_redis_key(server_id))
-    return val.decode() if val else "idle"
+    if val is None:
+        return "idle"
+    if isinstance(val, bytes):
+        return val.decode()
+    return str(val)
 
 
 async def _set_status(server_id: str, status: str) -> None:
@@ -93,10 +97,14 @@ async def _upsert_device(db_session, server_id, jamf_id: int, fields: dict) -> N
     existing = await db_session.execute(
         select(Device).where(Device.jamf_id == jamf_id, Device.server_id == server_id)
     )
-    device = existing.scalar_one_or_none()
-    if device is None:
+    devices = existing.scalars().all()
+    if not devices:
         device = Device(jamf_id=jamf_id, server_id=server_id)
         db_session.add(device)
+    else:
+        device = devices[0]
+        for dup in devices[1:]:
+            await db_session.delete(dup)
 
     for attr, value in fields.items():
         setattr(device, attr, value)
@@ -354,10 +362,14 @@ async def _upsert_policy(db_session, server_id, jamf_id: int, fields: dict) -> N
     existing = await db_session.execute(
         select(Policy).where(Policy.jamf_id == jamf_id, Policy.server_id == server_id)
     )
-    policy = existing.scalar_one_or_none()
-    if policy is None:
+    policies = existing.scalars().all()
+    if not policies:
         policy = Policy(jamf_id=jamf_id, server_id=server_id)
         db_session.add(policy)
+    else:
+        policy = policies[0]
+        for dup in policies[1:]:
+            await db_session.delete(dup)
 
     for attr, value in fields.items():
         setattr(policy, attr, value)
@@ -595,10 +607,14 @@ async def _upsert_smart_group(db_session, server_id, jamf_id: int, fields: dict)
     existing = await db_session.execute(
         select(SmartGroup).where(SmartGroup.jamf_id == jamf_id, SmartGroup.server_id == server_id)
     )
-    sg = existing.scalar_one_or_none()
-    if sg is None:
+    groups = existing.scalars().all()
+    if not groups:
         sg = SmartGroup(jamf_id=jamf_id, server_id=server_id)
         db_session.add(sg)
+    else:
+        sg = groups[0]
+        for dup in groups[1:]:
+            await db_session.delete(dup)
     for attr, value in fields.items():
         setattr(sg, attr, value)
     sg.synced_at = datetime.now(UTC)
@@ -706,10 +722,14 @@ async def _upsert_patch_title(db_session, server_id, jamf_id: int, fields: dict)
     existing = await db_session.execute(
         select(PatchTitle).where(PatchTitle.jamf_id == jamf_id, PatchTitle.server_id == server_id)
     )
-    pt = existing.scalar_one_or_none()
-    if pt is None:
+    patch_titles = existing.scalars().all()
+    if not patch_titles:
         pt = PatchTitle(jamf_id=jamf_id, server_id=server_id)
         db_session.add(pt)
+    else:
+        pt = patch_titles[0]
+        for dup in patch_titles[1:]:
+            await db_session.delete(dup)
     for attr, value in fields.items():
         setattr(pt, attr, value)
     pt.synced_at = datetime.now(UTC)

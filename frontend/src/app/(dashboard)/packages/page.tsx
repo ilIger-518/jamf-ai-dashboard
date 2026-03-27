@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import type { AxiosError } from "axios";
 import { Box, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useUiStore } from "@/store/uiStore";
@@ -15,7 +16,7 @@ interface PackageItem {
 export default function PackagesPage() {
   const { selectedServerId } = useUiStore();
 
-  const { data = [], isLoading } = useQuery<PackageItem[]>({
+  const { data = [], isLoading, isError, error } = useQuery<PackageItem[]>({
     queryKey: ["assets", "packages", selectedServerId],
     enabled: !!selectedServerId,
     queryFn: () =>
@@ -23,6 +24,12 @@ export default function PackagesPage() {
         .get<PackageItem[]>("/assets/packages", { params: { server_id: selectedServerId } })
         .then((r) => r.data),
   });
+
+  const errorMessage = (() => {
+    if (!isError) return null;
+    const err = error as AxiosError<{ detail?: string }> | null;
+    return err?.response?.data?.detail || err?.message || "Unable to load packages from Jamf Pro.";
+  })();
 
   return (
     <div className="space-y-4">
@@ -38,6 +45,10 @@ export default function PackagesPage() {
       ) : isLoading ? (
         <div className="flex items-center justify-center rounded-xl border border-gray-200 bg-white py-16 dark:border-gray-700 dark:bg-gray-900">
           <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+        </div>
+      ) : isError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+          Failed to load packages. {errorMessage}
         </div>
       ) : data.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white p-10 text-center dark:border-gray-700 dark:bg-gray-900">

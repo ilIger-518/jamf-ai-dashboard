@@ -175,23 +175,74 @@ async def list_packages(
     server = await _load_server(db, server_id)
 
     async with httpx.AsyncClient(timeout=45) as client:
-        token = await _get_oauth_token(
-            client,
-            server.url.rstrip("/"),
-            decrypt(server.client_id),
-            decrypt(server.client_secret),
-        )
-        resp = await client.get(
-            f"{server.url.rstrip('/')}/JSSResource/packages",
-            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        )
-        if resp.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Failed to list packages: HTTP {resp.status_code}",
+        credential_sets: list[tuple[str, str, str]] = [
+            (
+                "primary",
+                decrypt(server.client_id),
+                decrypt(server.client_secret),
+            )
+        ]
+        if server.ai_client_id and server.ai_client_secret:
+            credential_sets.append(
+                (
+                    "ai",
+                    decrypt(server.ai_client_id),
+                    decrypt(server.ai_client_secret),
+                )
             )
 
-    raw_items = _normalize_list_payload(resp.json(), "packages", "package")
+        raw_items: list[dict] = []
+        failures: list[str] = []
+        package_endpoints = [
+            ("/api/v1/packages", {"page": 0, "page-size": 200}, "modern"),
+            ("/JSSResource/packages", None, "classic"),
+            ("/JSSResource/packages/subset/basic", None, "classic-subset"),
+        ]
+
+        for credential_label, client_id, client_secret in credential_sets:
+            try:
+                token = await _get_oauth_token(
+                    client,
+                    server.url.rstrip("/"),
+                    client_id,
+                    client_secret,
+                )
+            except HTTPException as exc:
+                failures.append(f"{credential_label}:oauth:{exc.detail}")
+                continue
+
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+            for endpoint, params, label in package_endpoints:
+                resp = await client.get(
+                    f"{server.url.rstrip('/')}{endpoint}",
+                    headers=headers,
+                    params=params,
+                )
+                if resp.status_code != 200:
+                    failures.append(f"{credential_label}:{label}:{resp.status_code}")
+                    continue
+
+                payload = resp.json()
+                if endpoint.startswith("/api/"):
+                    if isinstance(payload, dict):
+                        raw_items = payload.get("results") or payload.get("packages") or []
+                    elif isinstance(payload, list):
+                        raw_items = payload
+                else:
+                    raw_items = _normalize_list_payload(payload, "packages", "package")
+
+                if raw_items:
+                    break
+
+            if raw_items:
+                break
+
+        if not raw_items and failures:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Failed to list packages ({', '.join(failures)})",
+            )
+
     out = [
         PackageItem(
             id=int(i["id"]),
