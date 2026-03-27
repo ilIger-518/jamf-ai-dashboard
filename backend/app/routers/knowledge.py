@@ -318,9 +318,9 @@ async def create_knowledge_base(
             for kb in existing_default:
                 kb.is_default = False
 
-            current_count = (await session.execute(select(KnowledgeBase))).scalars().all()
-            should_set_default = body.is_default or len(current_count) == 0
-            kb = KnowledgeBase(
+        current_count = (await session.execute(select(KnowledgeBase))).scalars().all()
+        should_set_default = body.is_default or len(current_count) == 0
+        kb = KnowledgeBase(
             name=name,
             description=body.description,
             collection_name=collection_name,
@@ -328,7 +328,7 @@ async def create_knowledge_base(
             embedding_model=embedding_model,
             embedding_dimension=embedding_dimension,
             dimension_tag=body.dimension_tag,
-                is_default=should_set_default,
+            is_default=should_set_default,
         )
         session.add(kb)
         await session.commit()
@@ -351,11 +351,11 @@ async def start_scrape(
 
     async with AsyncSessionLocal() as session:
         if body.knowledge_base_id:
-                try:
-                    kb_id = uuid.UUID(body.knowledge_base_id)
-                except ValueError as exc:
-                    raise HTTPException(status_code=400, detail="Invalid knowledge_base_id") from exc
-                knowledge_base = await session.get(KnowledgeBase, kb_id)
+            try:
+                kb_id = uuid.UUID(body.knowledge_base_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid knowledge_base_id") from exc
+            knowledge_base = await session.get(KnowledgeBase, kb_id)
             if not knowledge_base:
                 raise HTTPException(status_code=404, detail="Knowledge base not found")
         else:
