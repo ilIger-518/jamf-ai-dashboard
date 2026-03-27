@@ -38,7 +38,7 @@ ollama_data/
 *.gguf
 *.bin
 *.safetensors
-models/
+/models/
 
 # ── OS / editor ───────────────────────────────────────────────
 .DS_Store
