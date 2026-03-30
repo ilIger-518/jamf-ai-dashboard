@@ -158,8 +158,40 @@ interface UpdateStatusData {
   last_checked: string | null;
   update_in_progress: boolean;
   last_update_result: string | null;
+  last_update_label?: string | null;
+  last_update_severity?: "success" | "info" | "warning" | "error" | string | null;
   last_update_at: string | null;
   log: string[];
+}
+
+function getUpdateResultMeta(status: UpdateStatusData | undefined): {
+  label: string;
+  severity: "success" | "info" | "warning" | "error";
+} | null {
+  if (!status?.last_update_result) return null;
+
+  const apiLabel = status.last_update_label?.trim();
+  const apiSeverity = status.last_update_severity;
+  if (
+    apiLabel &&
+    (apiSeverity === "success" || apiSeverity === "info" || apiSeverity === "warning" || apiSeverity === "error")
+  ) {
+    return { label: apiLabel, severity: apiSeverity };
+  }
+
+  const fallback: Record<string, { label: string; severity: "success" | "info" | "warning" | "error" }> = {
+    success: { label: "Update succeeded", severity: "success" },
+    rolled_back: { label: "Update failed and was rolled back", severity: "warning" },
+    failed: { label: "Update failed", severity: "error" },
+    failed_port_conflict: { label: "Update failed: host port 8000 is already in use", severity: "error" },
+    skipped_active_scrape: { label: "Auto-update skipped: active scrape job is running", severity: "info" },
+    skipped_scrape_check_failed: { label: "Auto-update skipped: could not verify scrape job state", severity: "warning" },
+  };
+
+  return fallback[status.last_update_result] ?? {
+    label: status.last_update_result,
+    severity: "info",
+  };
 }
 
 interface AIConfigData {
@@ -622,7 +654,7 @@ function UpdatesPanel() {
     );
   }
 
-  const resultBadge = status?.last_update_result;
+  const resultBadge = getUpdateResultMeta(status);
   const commitBaseUrl = status?.repo_url ? `${status.repo_url.replace(/\/$/, "")}/commit` : "";
 
   return (
@@ -698,14 +730,18 @@ function UpdatesPanel() {
         {resultBadge && (
           <div className={cn(
             "flex items-center gap-2 border-t px-4 py-2 text-xs",
-            resultBadge === "success"
+            resultBadge.severity === "success"
               ? "border-green-100 bg-green-50 text-green-700 dark:border-green-900/40 dark:bg-green-900/20 dark:text-green-300"
-              : "border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300",
+              : resultBadge.severity === "error"
+                ? "border-red-100 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300"
+                : resultBadge.severity === "warning"
+                  ? "border-amber-100 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300"
+                  : "border-blue-100 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300",
           )}>
-            {resultBadge === "success"
+            {resultBadge.severity === "success"
               ? <CheckCheck className="h-3.5 w-3.5 shrink-0" />
               : <AlertTriangle className="h-3.5 w-3.5 shrink-0" />}
-            Last update result: <strong className="ml-0.5">{resultBadge}</strong>
+            Last update result: <strong className="ml-0.5">{resultBadge.label}</strong>
             {status?.last_update_at && (
               <span className="ml-auto opacity-70">{new Date(status.last_update_at).toLocaleString()}</span>
             )}

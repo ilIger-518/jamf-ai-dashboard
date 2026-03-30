@@ -84,6 +84,8 @@ class UpdateStatus(BaseModel):
     last_checked:        str | None
     update_in_progress:  bool
     last_update_result:  str | None
+    last_update_label:   str | None = None
+    last_update_severity: str | None = None
     last_update_at:      str | None
     log:                 list[str]
 
@@ -331,6 +333,21 @@ def _list_compose_services() -> list[str]:
     if code != 0 or not out:
         return []
     return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def _get_update_result_meta(result: str | None) -> tuple[str | None, str | None]:
+    if not result:
+        return None, None
+
+    mapping: dict[str, tuple[str, str]] = {
+        "success": ("Update succeeded", "success"),
+        "rolled_back": ("Update failed and was rolled back", "warning"),
+        "failed": ("Update failed", "error"),
+        "failed_port_conflict": ("Update failed: host port 8000 is already in use", "error"),
+        "skipped_active_scrape": ("Auto-update skipped: active scrape job is running", "info"),
+        "skipped_scrape_check_failed": ("Auto-update skipped: could not verify scrape job state", "warning"),
+    }
+    return mapping.get(result, (result, "info"))
 
 
 def _contains_port_conflict(output: str) -> bool:
@@ -669,7 +686,11 @@ async def _polling_loop() -> None:
 # ── FastAPI routes ────────────────────────────────────────────────────────────
 @app.get("/status", response_model=UpdateStatus)
 async def get_status() -> UpdateStatus:
-    return UpdateStatus(**_state)
+    state = dict(_state)
+    label, severity = _get_update_result_meta(state.get("last_update_result"))
+    state["last_update_label"] = label
+    state["last_update_severity"] = severity
+    return UpdateStatus(**state)
 
 
 @app.get("/config", response_model=UpdaterConfig)
