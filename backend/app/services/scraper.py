@@ -21,7 +21,7 @@ import time
 import uuid
 from collections import deque
 from datetime import UTC, datetime
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_SUB_SITEMAPS = 40
 _MAX_SEED_URLS = 3000
+_MAX_QUEUE_URLS = 20000
 _SITEMAP_SEED_TIMEOUT_SECONDS = 90
 _SUB_SITEMAP_CONCURRENCY = 8
 
@@ -60,9 +61,20 @@ def _same_domain(base: str, url: str) -> bool:
 
 
 def _normalize(url: str) -> str:
-    """Strip fragments and trailing slashes for de-duplication."""
+    """Canonicalize URL for de-duplication and strip tracking query params."""
     p = urlparse(url)
-    return p._replace(fragment="").geturl().rstrip("/")
+    query_pairs = parse_qsl(p.query, keep_blank_values=True)
+    cleaned_query = urlencode(
+        sorted(
+            [
+                (k, v)
+                for (k, v) in query_pairs
+                if not k.lower().startswith("utm_")
+                and k.lower() not in {"fbclid", "gclid", "msclkid", "mc_cid", "mc_eid"}
+            ]
+        )
+    )
+    return p._replace(fragment="", query=cleaned_query).geturl().rstrip("/")
 
 
 def _extract_text(html: str) -> str:
@@ -359,10 +371,20 @@ async def run_scrape_job(job_id: str) -> None:
 
     visited: set[str] = set()
     queue: deque[str] = deque()
+    queued: set[str] = set()
     pages_scraped = 0
     bytes_scraped = 0
     errors: list[str] = []
     limiter_log_every = 10
+
+    def _enqueue(candidate_url: str) -> bool:
+        if candidate_url in visited or candidate_url in queued:
+            return False
+        if len(queued) >= _MAX_QUEUE_URLS:
+            return False
+        queue.append(candidate_url)
+        queued.add(candidate_url)
+        return True
 
     # Respect robots.txt at a basic level — skip common non-content paths
     SKIP_PATTERNS = re.compile(
@@ -420,12 +442,13 @@ async def run_scrape_job(job_id: str) -> None:
             # For multi-language sites prefer English pages where locale is visible
             en_urls = [u for u in sitemap_urls if "/en-US/" in u or "/en/" in u]
             seed = en_urls if en_urls else sitemap_urls
-            queue.extend(seed)
+            for seed_url in seed:
+                _enqueue(seed_url)
             logger.info("Queue seeded with %d URLs from sitemap", len(queue))
             seed_mode = "sitemap"
             await _append_job_log(job_id, f"Queue seeded from sitemap with {len(queue)} URLs")
         else:
-            queue.append(start_url)
+            _enqueue(start_url)
             seed_mode = "start_url"
             await _append_job_log(job_id, "Queue seeded from start URL")
 
@@ -492,8 +515,8 @@ async def run_scrape_job(job_id: str) -> None:
                     break
 
                 url = queue.popleft()
+                queued.discard(url)
                 if url in visited:
-                    await _append_job_log(job_id, f"Skipping already visited URL: {url}")
                     continue
                 if SKIP_PATTERNS.search(urlparse(url).path):
                     await _append_job_log(job_id, f"Skipping non-content URL by extension: {url}")
@@ -559,8 +582,8 @@ async def run_scrape_job(job_id: str) -> None:
                         await _append_job_log(job_id, f"Skipped off-topic page: {url}")
                         # Still enqueue child links so we don't miss nested pages
                         for link in _extract_links(html, url):
-                            if _same_domain(start_url, link) and link not in visited:
-                                queue.append(link)
+                            if _same_domain(start_url, link):
+                                _enqueue(link)
                         continue
 
                 title = zoomin_title or _page_title(html, url)
@@ -631,22 +654,31 @@ async def run_scrape_job(job_id: str) -> None:
                         job_row = await session.get(ScrapeJob, uuid.UUID(job_id))
                         if job_row:
                             job_row.pages_scraped = pages_scraped
-                            job_row.pages_found = len(visited)
+                            job_row.pages_found = len(visited) + len(queued)
                             job_row.bytes_scraped = bytes_scraped
                             job_row.last_url = url
                             await session.commit()
 
                 # Enqueue child links
                 added_links = 0
+                dropped_links = 0
                 for link in _extract_links(html, url):
-                    if _same_domain(start_url, link) and link not in visited:
-                        queue.append(link)
-                        added_links += 1
+                    if _same_domain(start_url, link):
+                        if _enqueue(link):
+                            added_links += 1
+                        else:
+                            dropped_links += 1
 
                 if added_links:
                     await _append_job_log(
                         job_id,
                         f"Discovered {added_links} new links from {url}; queue size now {len(queue)}",
+                    )
+                if dropped_links and len(queued) >= _MAX_QUEUE_URLS:
+                    await _append_job_log(
+                        job_id,
+                        f"Queue cap reached ({_MAX_QUEUE_URLS}); dropped {dropped_links} discovered links",
+                        "warning",
                     )
 
             except asyncio.CancelledError:
@@ -689,7 +721,7 @@ async def run_scrape_job(job_id: str) -> None:
         if job_row:
             job_row.status = "completed" if not errors else "completed_with_errors"
             job_row.pages_scraped = pages_scraped
-            job_row.pages_found = len(visited)
+            job_row.pages_found = len(visited) + len(queued)
             job_row.bytes_scraped = bytes_scraped
             job_row.last_url = None
             job_row.finished_at = datetime.now(UTC)
