@@ -44,6 +44,7 @@ AUTO_UPDATE      = os.environ.get("AUTO_UPDATE_ENABLED", "false").lower() == "tr
 HEALTH_URL       = os.environ.get("HEALTH_URL", "http://backend:8000/api/v1/health")
 ROLLBACK_TIMEOUT = int(os.environ.get("ROLLBACK_TIMEOUT_SECONDS", "90"))
 APP_SERVICES     = os.environ.get("UPDATE_SERVICES", "backend frontend").split()
+AUTO_BLOCK_ACTIVE_SCRAPES = os.environ.get("AUTO_UPDATE_BLOCK_ACTIVE_SCRAPES", "true").lower() == "true"
 
 _cfg: dict[str, str] = {
     "github_repo": GITHUB_REPO,
@@ -332,6 +333,50 @@ def _list_compose_services() -> list[str]:
     return [line.strip() for line in out.splitlines() if line.strip()]
 
 
+def _contains_port_conflict(output: str) -> bool:
+    lower = output.lower()
+    return (
+        "port is already allocated" in lower
+        or "bind for 0.0.0.0:8000 failed" in lower
+    )
+
+
+def _get_active_scrape_job_count() -> int | None:
+    """Return active scrape job count from backend DB, or None when unknown."""
+    check_script = """
+import asyncio
+from sqlalchemy import func, select
+
+from app.database import AsyncSessionLocal
+from app.models.scrape_job import ScrapeJob
+
+
+async def main() -> None:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(func.count()).select_from(ScrapeJob).where(
+                ScrapeJob.status.in_(["pending", "running"])
+            )
+        )
+        print(int(result.scalar() or 0))
+
+
+asyncio.run(main())
+""".strip()
+
+    code, out = _run(["docker", "compose", "exec", "-T", "backend", "python", "-c", check_script])
+    if code != 0:
+        _emit(f"Active scrape-job check failed (exit={code})")
+        return None
+
+    last_line = out.strip().splitlines()[-1] if out.strip() else ""
+    try:
+        return int(last_line)
+    except ValueError:
+        _emit(f"Active scrape-job check returned unexpected output: {out}")
+        return None
+
+
 async def _get_latest_commit() -> str:
     """Return the latest commit SHA (12 chars) for the configured branch."""
     repo = _cfg["github_repo"] or _repo_from_remote()
@@ -520,7 +565,7 @@ async def check_for_updates() -> None:
     )
 
 
-async def apply_update() -> None:
+async def apply_update(auto_triggered: bool = False) -> None:
     if _state["update_in_progress"]:
         return
 
@@ -529,6 +574,19 @@ async def apply_update() -> None:
     prev_commit = _state["current_commit"]
 
     try:
+        if auto_triggered and AUTO_BLOCK_ACTIVE_SCRAPES:
+            active_jobs = _get_active_scrape_job_count()
+            if active_jobs is None:
+                _state["last_update_result"] = "skipped_scrape_check_failed"
+                _state["last_update_at"] = datetime.now(timezone.utc).isoformat()
+                _emit("Auto-update skipped: could not safely verify active scrape jobs")
+                return
+            if active_jobs > 0:
+                _state["last_update_result"] = "skipped_active_scrape"
+                _state["last_update_at"] = datetime.now(timezone.utc).isoformat()
+                _emit(f"Auto-update skipped: {active_jobs} scrape job(s) still pending/running")
+                return
+
         _emit(f"Starting update {prev_commit} → {_state['latest_commit']}")
         branch = _cfg["github_branch"]
 
@@ -565,6 +623,15 @@ async def apply_update() -> None:
     except RuntimeError as exc:
         _emit(f"Update failed: {exc} — rolling back to {prev_commit}")
 
+        if _contains_port_conflict(str(exc)):
+            _emit("Detected port 8000 conflict; restoring git state without restart rollback")
+            rc, out = _run(["git", "reset", "--hard", prev_commit])
+            _emit(f"git reset --hard → exit={rc}\n{out}")
+            _state["current_commit"] = prev_commit
+            _state["last_update_result"] = "failed_port_conflict"
+            _state["last_update_at"] = datetime.now(timezone.utc).isoformat()
+            return
+
         rc, out = _run(["git", "reset", "--hard", prev_commit])
         _emit(f"git reset --hard → exit={rc}\n{out}")
 
@@ -589,14 +656,14 @@ async def _polling_loop() -> None:
     await check_for_updates()
     if AUTO_UPDATE and _state["update_available"]:
         _emit("Auto-update enabled — applying update on startup")
-        await apply_update()
+        await apply_update(auto_triggered=True)
 
     while True:
         await asyncio.sleep(CHECK_INTERVAL * 60)
         await check_for_updates()
         if AUTO_UPDATE and _state["update_available"]:
             _emit("Auto-update: new version detected — applying")
-            await apply_update()
+            await apply_update(auto_triggered=True)
 
 
 # ── FastAPI routes ────────────────────────────────────────────────────────────
