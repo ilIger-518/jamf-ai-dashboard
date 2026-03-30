@@ -616,7 +616,9 @@ async def run_scrape_job(job_id: str) -> None:
                         continue
 
                     if not isinstance(fetched, dict):
-                        logger.warning("Unexpected fetch result type for %s: %s", url, type(fetched))
+                        logger.warning(
+                            "Unexpected fetch result type for %s: %s", url, type(fetched)
+                        )
                         errors.append(f"{url}: unexpected fetch result type")
                         await _append_job_log(
                             job_id,
