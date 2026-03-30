@@ -1,7 +1,7 @@
 """AI assistant router — per-user chat sessions with full history, persisted to PostgreSQL."""
 
-import logging
 import json
+import logging
 import re
 import uuid as uuid_lib
 from datetime import UTC, datetime

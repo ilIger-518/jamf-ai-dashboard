@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -532,7 +532,7 @@ async def download_all_knowledge_bases(_: CurrentUser) -> Response:
         jobs_by_kb.setdefault(job.knowledge_base_id, []).append(job)
 
     payload = {
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "knowledge_base_count": len(knowledge_bases),
         "knowledge_bases": [
             {
@@ -619,7 +619,7 @@ async def download_knowledge_base(knowledge_base_id: str, _: CurrentUser) -> Res
         ).scalars().all()
 
     payload = {
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "knowledge_base": {
             "id": str(kb.id),
             "name": kb.name,

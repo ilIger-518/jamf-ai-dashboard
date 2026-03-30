@@ -1,9 +1,9 @@
 """FastAPI application factory."""
 
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-import uuid
+from datetime import UTC, datetime
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,8 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import update
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.cache import close_redis, get_redis
 from app.config import get_settings
@@ -36,9 +35,9 @@ from app.routers import (
     system,
     users,
 )
-from app.services.jamf.sync import sync_all_servers
 from app.services.auth import AuthService
 from app.services.dashboard_logs import write_dashboard_log
+from app.services.jamf.sync import sync_all_servers
 from app.services.llm import describe_embedding_target, describe_llm_target
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +66,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
             .values(
                 status="failed",
                 error="Interrupted: service was restarted while job was running",
-                finished_at=datetime.now(timezone.utc),
+                finished_at=datetime.now(UTC),
             )
             .returning(ScrapeJob.id, ScrapeJob.domain)
         )

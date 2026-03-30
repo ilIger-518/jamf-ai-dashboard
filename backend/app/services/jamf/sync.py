@@ -360,7 +360,7 @@ async def _sync_computers_classic(
     total_upserted = 0
     created_count = 0
     updated_count = 0
-    for jamf_id, detail in zip(valid_ids, details):
+    for jamf_id, detail in zip(valid_ids, details, strict=False):
         if detail is None:
             continue
 
@@ -538,7 +538,7 @@ async def _sync_policies_v1(
         *[_fetch_policy_detail_v1(client, base_url, token, pid, semaphore) for pid in stub_ids]
     )
 
-    for stub_id, detail in zip(stub_ids, details):
+    for stub_id, detail in zip(stub_ids, details, strict=False):
         jamf_id = int(stub_id)
         if not jamf_id:
             continue
@@ -636,7 +636,7 @@ async def _sync_policies_classic(
     )
 
     total_upserted = 0
-    for stub, detail in zip(valid_stubs, details):
+    for stub, detail in zip(valid_stubs, details, strict=False):
         jamf_id = int(stub.get("id", 0))
         if not jamf_id or detail is None:
             continue
@@ -773,7 +773,7 @@ async def _sync_smart_groups(
     )
 
     total_upserted = 0
-    for stub, detail in zip(smart_stubs, details):
+    for stub, detail in zip(smart_stubs, details, strict=False):
         jamf_id = int(stub.get("id", 0))
         if not jamf_id or detail is None:
             continue

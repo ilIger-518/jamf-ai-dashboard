@@ -2,7 +2,6 @@
 
 import json
 from collections.abc import Iterable
-
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query

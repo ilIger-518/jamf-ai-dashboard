@@ -6,8 +6,8 @@ Create Date: 2026-03-13 14:10:00.000000
 
 """
 
-from collections.abc import Sequence
 import uuid
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql

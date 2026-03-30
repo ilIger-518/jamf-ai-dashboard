@@ -5,9 +5,8 @@ Supports cross-server migration for policies, smart groups, and static groups.
 
 import logging
 import uuid
-from typing import Literal
-from typing import Annotated
 from copy import deepcopy
+from typing import Annotated, Literal
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
@@ -21,9 +20,9 @@ from app.models.server import JamfServer
 from app.schemas.migrator import (
     ListMigratorObjectsResponse,
     MigrationDependencyItem,
+    MigrationItemResult,
     MigrationPreflightItem,
     MigrationPreflightResponse,
-    MigrationItemResult,
     MigrationRequest,
     MigrationResponse,
     MigratorObject,

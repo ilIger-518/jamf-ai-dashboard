@@ -1,7 +1,7 @@
 """Authentication router: register, login, refresh, logout, me."""
 
-from urllib.parse import urlencode
 import uuid
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Cookie, HTTPException, Response, status
@@ -9,9 +9,8 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
 from app.cache import get_redis
-from app.dependencies import get_user_permissions
 from app.config import get_settings
-from app.dependencies import CurrentUser, DBSession
+from app.dependencies import CurrentUser, DBSession, get_user_permissions
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.auth import (

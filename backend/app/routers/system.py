@@ -1,7 +1,7 @@
 """System info and software-update proxy endpoints."""
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -149,7 +149,7 @@ async def set_ai_config(payload: AIConfigPayload, _: AdminUser) -> dict:
 
 
 def _to_iso_utc(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(ts, tz=UTC).isoformat()
 
 
 def _candidate_log_dirs() -> list[Path]:

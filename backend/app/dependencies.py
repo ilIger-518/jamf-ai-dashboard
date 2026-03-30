@@ -1,17 +1,15 @@
 """Shared FastAPI dependencies."""
 
+import uuid
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-import uuid
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.authz import ALL_PERMISSIONS
-from app.cache import get_redis
 from app.database import get_db
 from app.models.user import User
 from app.services.auth import AuthService
@@ -24,7 +22,6 @@ async def get_current_user(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     """Validate the JWT Bearer token and return the authenticated user."""
-    redis = await get_redis()
     token_payload = AuthService._decode_token(credentials.credentials)
     if not token_payload or token_payload.get("type") != "access":
         raise HTTPException(
