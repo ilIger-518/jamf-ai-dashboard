@@ -145,6 +145,21 @@ class SourcePreviewResponse(BaseModel):
     preview_text: str
 
 
+class SourceCleanupDuplicateRecord(BaseModel):
+    id: str
+    title: str
+    source: str
+    ingested_at: str
+    knowledge_base_name: str | None
+
+
+class SourceCleanupDuplicateGroup(BaseModel):
+    key: str
+    keep: SourceCleanupDuplicateRecord
+    duplicates: list[SourceCleanupDuplicateRecord]
+    duplicate_count: int
+
+
 class SourceCleanupResponse(BaseModel):
     dry_run: bool
     scanned_sources: int
@@ -152,6 +167,16 @@ class SourceCleanupResponse(BaseModel):
     duplicate_groups: int
     duplicates_found: int
     duplicates_deleted: int
+    preview_groups: list[SourceCleanupDuplicateGroup] = []
+    preview_truncated: bool = False
+
+
+class SourceListResponse(BaseModel):
+    items: list[SourceResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 class KnowledgeBaseCreateRequest(BaseModel):
@@ -919,28 +944,65 @@ async def delete_scrape_job(job_id: str, _: ManageKnowledgeUser) -> None:
         await session.commit()
 
 
-@router.get("/sources", response_model=list[SourceResponse])
-async def list_sources(_: CurrentUser, knowledge_base_id: str | None = None) -> list[SourceResponse]:
-    """List all ingested knowledge sources."""
+@router.get("/sources", response_model=SourceListResponse)
+async def list_sources(
+    _: CurrentUser,
+    knowledge_base_id: str | None = None,
+    search: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+) -> SourceListResponse:
+    """List ingested knowledge sources with server-side pagination and search."""
     async with AsyncSessionLocal() as session:
-        query = select(KnowledgeDocument)
+        query = select(KnowledgeDocument).outerjoin(
+            KnowledgeBase,
+            KnowledgeDocument.knowledge_base_id == KnowledgeBase.id,
+        )
         if knowledge_base_id:
             try:
                 kb_id = uuid.UUID(knowledge_base_id)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail="Invalid knowledge_base_id") from exc
             query = query.where(KnowledgeDocument.knowledge_base_id == kb_id)
-        result = await session.execute(query.order_by(KnowledgeDocument.ingested_at.desc()))
+
+        if search and search.strip():
+            token = f"%{search.strip().lower()}%"
+            query = query.where(
+                func.lower(KnowledgeDocument.title).like(token)
+                | func.lower(KnowledgeDocument.source).like(token)
+                | func.lower(func.coalesce(KnowledgeBase.name, "")).like(token)
+            )
+
+        total = (await session.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
+        offset = (page - 1) * page_size
+        result = await session.execute(
+            query.order_by(KnowledgeDocument.ingested_at.desc()).offset(offset).limit(page_size)
+        )
         docs = result.scalars().all()
-        kb_result = await session.execute(select(KnowledgeBase))
-        kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
-    return [SourceResponse.from_orm(d, knowledge_base=kb_map.get(d.knowledge_base_id)) for d in docs]
+
+        kb_ids = {doc.knowledge_base_id for doc in docs if doc.knowledge_base_id}
+        kb_map: dict[uuid.UUID, KnowledgeBase] = {}
+        if kb_ids:
+            kb_result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.id.in_(kb_ids)))
+            kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
+
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+    return SourceListResponse(
+        items=[SourceResponse.from_orm(d, knowledge_base=kb_map.get(d.knowledge_base_id)) for d in docs],
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 @router.post("/sources/cleanup-duplicates", response_model=SourceCleanupResponse)
 async def cleanup_duplicate_sources(
     _: ManageKnowledgeUser,
     dry_run: bool = Query(default=False),
+    include_preview: bool = Query(default=True),
+    preview_group_limit: int = Query(default=25, ge=1, le=200),
+    preview_duplicates_per_group: int = Query(default=5, ge=1, le=50),
 ) -> SourceCleanupResponse:
     """Delete duplicate source rows, keeping the newest row per knowledge-base/source key."""
     async with AsyncSessionLocal() as session:
@@ -953,6 +1015,9 @@ async def cleanup_duplicate_sources(
             )
         ).scalars().all()
 
+        kb_result = await session.execute(select(KnowledgeBase))
+        kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
+
         grouped: dict[str, list[KnowledgeDocument]] = {}
         for doc in docs:
             scope = str(doc.knowledge_base_id or "none")
@@ -961,11 +1026,37 @@ async def cleanup_duplicate_sources(
 
         duplicate_groups = 0
         duplicate_ids: list[uuid.UUID] = []
+        preview_groups: list[SourceCleanupDuplicateGroup] = []
+        preview_truncated = False
+
+        def _to_preview_record(doc: KnowledgeDocument) -> SourceCleanupDuplicateRecord:
+            kb = kb_map.get(doc.knowledge_base_id) if doc.knowledge_base_id else None
+            return SourceCleanupDuplicateRecord(
+                id=str(doc.id),
+                title=doc.title,
+                source=doc.source,
+                ingested_at=doc.ingested_at.isoformat(),
+                knowledge_base_name=(kb.name if kb else None),
+            )
+
         for group in grouped.values():
             if len(group) <= 1:
                 continue
             duplicate_groups += 1
             duplicate_ids.extend([item.id for item in group[1:]])
+
+            if include_preview:
+                if len(preview_groups) >= preview_group_limit:
+                    preview_truncated = True
+                    continue
+                preview_groups.append(
+                    SourceCleanupDuplicateGroup(
+                        key=f"{group[0].knowledge_base_id or 'none'}:{_canonical_source_key(group[0])}",
+                        keep=_to_preview_record(group[0]),
+                        duplicates=[_to_preview_record(item) for item in group[1 : 1 + preview_duplicates_per_group]],
+                        duplicate_count=len(group) - 1,
+                    )
+                )
 
         if duplicate_ids and not dry_run:
             await session.execute(delete(KnowledgeDocument).where(KnowledgeDocument.id.in_(duplicate_ids)))
@@ -978,6 +1069,8 @@ async def cleanup_duplicate_sources(
         duplicate_groups=duplicate_groups,
         duplicates_found=len(duplicate_ids),
         duplicates_deleted=0 if dry_run else len(duplicate_ids),
+        preview_groups=preview_groups,
+        preview_truncated=preview_truncated,
     )
 
 
