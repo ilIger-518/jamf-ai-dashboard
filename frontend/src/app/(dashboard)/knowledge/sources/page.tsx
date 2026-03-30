@@ -32,9 +32,11 @@ interface SourcePreview {
 }
 
 interface SourceCleanupResult {
+  dry_run: boolean;
   scanned_sources: number;
   unique_groups: number;
   duplicate_groups: number;
+  duplicates_found: number;
   duplicates_deleted: number;
 }
 
@@ -122,6 +124,25 @@ export default function KnowledgeSourcesPage() {
     onError: () => toast.error("Failed to cleanup duplicate sources"),
   });
 
+  const previewCleanup = useMutation({
+    mutationFn: () =>
+      api
+        .post<SourceCleanupResult>("/knowledge/sources/cleanup-duplicates", null, {
+          params: { dry_run: true },
+        })
+        .then((r) => r.data),
+    onSuccess: (result) => {
+      if (result.duplicates_found > 0) {
+        toast.success(
+          `Preview: ${result.duplicates_found} duplicates found across ${result.duplicate_groups} groups.`,
+        );
+      } else {
+        toast.success("Preview: no duplicate sources found.");
+      }
+    },
+    onError: () => toast.error("Failed to preview duplicate cleanup"),
+  });
+
   const filteredSources = useMemo(() => {
     const q = sourceSearch.trim().toLowerCase();
     if (!q) return sources;
@@ -152,14 +173,26 @@ export default function KnowledgeSourcesPage() {
         </Link>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={() => previewCleanup.mutate()}
+          disabled={previewCleanup.isPending || cleanupDuplicates.isPending}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          {previewCleanup.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          Preview Cleanup
+        </button>
         <button
           onClick={() => {
             if (confirm("Scan all stored sources and delete duplicate entries?")) {
               cleanupDuplicates.mutate();
             }
           }}
-          disabled={cleanupDuplicates.isPending}
+          disabled={cleanupDuplicates.isPending || previewCleanup.isPending}
           className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
         >
           {cleanupDuplicates.isPending ? (

@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import parse_qsl, urlencode, urlparse
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
@@ -146,9 +146,11 @@ class SourcePreviewResponse(BaseModel):
 
 
 class SourceCleanupResponse(BaseModel):
+    dry_run: bool
     scanned_sources: int
     unique_groups: int
     duplicate_groups: int
+    duplicates_found: int
     duplicates_deleted: int
 
 
@@ -936,7 +938,10 @@ async def list_sources(_: CurrentUser, knowledge_base_id: str | None = None) -> 
 
 
 @router.post("/sources/cleanup-duplicates", response_model=SourceCleanupResponse)
-async def cleanup_duplicate_sources(_: ManageKnowledgeUser) -> SourceCleanupResponse:
+async def cleanup_duplicate_sources(
+    _: ManageKnowledgeUser,
+    dry_run: bool = Query(default=False),
+) -> SourceCleanupResponse:
     """Delete duplicate source rows, keeping the newest row per knowledge-base/source key."""
     async with AsyncSessionLocal() as session:
         docs = (
@@ -962,15 +967,17 @@ async def cleanup_duplicate_sources(_: ManageKnowledgeUser) -> SourceCleanupResp
             duplicate_groups += 1
             duplicate_ids.extend([item.id for item in group[1:]])
 
-        if duplicate_ids:
+        if duplicate_ids and not dry_run:
             await session.execute(delete(KnowledgeDocument).where(KnowledgeDocument.id.in_(duplicate_ids)))
             await session.commit()
 
     return SourceCleanupResponse(
+        dry_run=dry_run,
         scanned_sources=len(docs),
         unique_groups=len(grouped),
         duplicate_groups=duplicate_groups,
-        duplicates_deleted=len(duplicate_ids),
+        duplicates_found=len(duplicate_ids),
+        duplicates_deleted=0 if dry_run else len(duplicate_ids),
     )
 
 
