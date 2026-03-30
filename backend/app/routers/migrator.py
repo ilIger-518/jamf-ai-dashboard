@@ -572,6 +572,95 @@ def _clear_static_group_members(payload: dict) -> None:
     payload["computers"] = {"computer": []}
 
 
+async def _list_target_categories_by_name(
+    client: httpx.AsyncClient,
+    base_url: str,
+    token: str,
+) -> set[str]:
+    resp = await client.get(
+        f"{base_url}/JSSResource/categories",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Failed to list categories from target")
+
+    items = _normalize_list_payload(resp.json(), "categories", "category")
+    names: set[str] = set()
+    for i in items:
+        name = i.get("name")
+        if isinstance(name, str) and name.strip():
+            names.add(name.strip())
+    return names
+
+
+async def _create_category_on_target(
+    client: httpx.AsyncClient,
+    base_url: str,
+    token: str,
+    category_name: str,
+) -> None:
+    resp = await client.post(
+        f"{base_url}/JSSResource/categories/id/0",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+        json={"category": {"name": category_name, "priority": 9}},
+    )
+    # 409 means already exists (race or concurrent migration)
+    if resp.status_code in (200, 201, 409):
+        return
+    raise RuntimeError(f"Failed to create category '{category_name}' on target: HTTP {resp.status_code}")
+
+
+def _extract_category_names_from_payload(node: object) -> set[str]:
+    """Extract category names from policy/script payloads.
+
+    Handles both string and object category representations.
+    """
+    names: set[str] = set()
+
+    def _walk(value: object, key: str | None = None) -> None:
+        if isinstance(value, dict):
+            if key == "category":
+                if isinstance(value.get("name"), str) and value.get("name", "").strip():
+                    names.add(value["name"].strip())
+            for k, v in value.items():
+                if k == "category" and isinstance(v, str) and v.strip():
+                    names.add(v.strip())
+                _walk(v, k)
+        elif isinstance(value, list):
+            for item in value:
+                _walk(item, key)
+
+    _walk(node)
+    return names
+
+
+async def _ensure_payload_categories_exist(
+    client: httpx.AsyncClient,
+    base_url: str,
+    token: str,
+    payload: dict,
+) -> list[str]:
+    """Ensure any category names referenced in payload exist on target Jamf."""
+    category_names = _extract_category_names_from_payload(payload)
+    if not category_names:
+        return []
+
+    existing = await _list_target_categories_by_name(client, base_url, token)
+    created: list[str] = []
+    for category_name in sorted(category_names):
+        if category_name in existing:
+            continue
+        await _create_category_on_target(client, base_url, token, category_name)
+        created.append(category_name)
+        existing.add(category_name)
+
+    return created
+
+
 @router.get("/objects", response_model=ListMigratorObjectsResponse)
 async def list_objects(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -707,13 +796,49 @@ async def migrate_objects(
                     _clear_static_group_members(payload)
                     item_logs.append("Cleared static group members for safe cross-server create")
 
-                create_logs = await _create_on_target(
-                    client,
-                    target.url.rstrip("/"),
-                    target_token,
-                    body.entity_type,
-                    payload,
-                )
+                if body.entity_type in {"policy", "script"}:
+                    created_categories = await _ensure_payload_categories_exist(
+                        client,
+                        target.url.rstrip("/"),
+                        target_token,
+                        payload,
+                    )
+                    if created_categories:
+                        item_logs.append(
+                            "Created missing target categories: " + ", ".join(created_categories)
+                        )
+
+                try:
+                    create_logs = await _create_on_target(
+                        client,
+                        target.url.rstrip("/"),
+                        target_token,
+                        body.entity_type,
+                        payload,
+                    )
+                except RuntimeError as exc:
+                    err = str(exc)
+                    if (
+                        body.entity_type in {"policy", "script"}
+                        and "No match found for category" in err
+                    ):
+                        item_logs.append("Retrying without category because target category reference is invalid")
+                        payload_no_category = deepcopy(payload)
+                        if isinstance(payload_no_category, dict):
+                            if "category" in payload_no_category:
+                                payload_no_category.pop("category", None)
+                            general = payload_no_category.get("general")
+                            if isinstance(general, dict):
+                                general.pop("category", None)
+                        create_logs = await _create_on_target(
+                            client,
+                            target.url.rstrip("/"),
+                            target_token,
+                            body.entity_type,
+                            payload_no_category,
+                        )
+                    else:
+                        raise
                 item_logs.extend(create_logs)
                 created += 1
                 existing_names.add(name)
