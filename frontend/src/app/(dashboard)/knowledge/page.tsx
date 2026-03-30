@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
+  Download,
   Plus,
   Trash2,
   RefreshCw,
@@ -859,7 +860,17 @@ export default function KnowledgePage() {
       {logsJob && <JobLogsModal job={logsJob} onClose={() => setLogsJob(null)} />}
 
       <section>
-        <h2 className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">Knowledge Bases</h2>
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Knowledge Bases</h2>
+          <a
+            href={`${api.defaults.baseURL}/knowledge/bases/download-all`}
+            className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            title="Download all knowledge bases"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download All
+          </a>
+        </div>
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
           <div className="border-b border-gray-200 p-4 dark:border-gray-700">
             <div className="grid gap-2 md:grid-cols-4">
@@ -899,7 +910,7 @@ export default function KnowledgePage() {
             <table className="w-full text-sm">
               <thead className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
                 <tr>
-                  {["Name", "Dimension Tag", "Embedding", "Collection", "Size", "Default", ""].map((h) => (
+                  {["Name", "Dimension Tag", "Embedding", "Collection", "Size", "Default", "", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">{h}</th>
                   ))}
                 </tr>
@@ -917,6 +928,16 @@ export default function KnowledgePage() {
                       {formatBytes(kb.total_size_bytes)} ({kb.source_count} sources)
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{kb.is_default ? "Yes" : "No"}</td>
+                    <td className="px-4 py-3 text-right">
+                      <a
+                        href={`${api.defaults.baseURL}/knowledge/bases/${kb.id}/download`}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                        title="Download knowledge base export"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </a>
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <button
                         onClick={() => {

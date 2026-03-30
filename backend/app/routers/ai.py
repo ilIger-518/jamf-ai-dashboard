@@ -792,10 +792,15 @@ async def create_session(current_user: CurrentUser, body: SessionCreate) -> Sess
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_session(session_id: str, current_user: CurrentUser) -> None:
     """Delete a session and all its messages."""
+    try:
+        session_uuid = uuid_lib.UUID(session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid session id") from exc
+
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(ChatSession).where(
-                ChatSession.id == uuid_lib.UUID(session_id),
+                ChatSession.id == session_uuid,
                 ChatSession.user_id == current_user.id,
             )
         )

@@ -20,6 +20,7 @@ import {
 import { api, API_BASE_URL } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
+import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -323,6 +324,13 @@ export default function AiAssistantPage() {
     onSuccess: (_data, id) => {
       if (activeSessionId === id) startNewChat();
       qc.invalidateQueries({ queryKey: ["ai-sessions"] });
+      toast.success("Chat deleted");
+    },
+    onError: (err: unknown) => {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        "Failed to delete chat";
+      toast.error(detail);
     },
   });
 

@@ -1,11 +1,14 @@
 """Knowledge base router — manage scrape jobs and stored knowledge sources."""
 
+import json
 import logging
 import os
 import re
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 
@@ -228,6 +231,11 @@ def _slugify_collection(name: str) -> str:
     return f"kb_{slug}"
 
 
+def _slugify_filename(name: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", name.strip()).strip("-")
+    return slug[:80] or "knowledge-base"
+
+
 async def _get_default_knowledge_base(session) -> KnowledgeBase:
     kb = (
         await session.execute(
@@ -434,6 +442,172 @@ async def delete_knowledge_base(knowledge_base_id: str, _: ManageKnowledgeUser) 
     # Delete vector chunks after relational records are removed.
     for doc in docs:
         await delete_by_source(doc.source, collection_name=doc.collection_name or "jamf_knowledge")
+
+
+@router.get("/bases/download-all")
+async def download_all_knowledge_bases(_: CurrentUser) -> Response:
+    """Download all knowledge bases (metadata + source docs + scrape jobs) as one JSON file."""
+    async with AsyncSessionLocal() as session:
+        knowledge_bases = (
+            await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.name.asc()))
+        ).scalars().all()
+
+        docs = (
+            await session.execute(
+                select(KnowledgeDocument).order_by(KnowledgeDocument.ingested_at.desc())
+            )
+        ).scalars().all()
+
+        jobs = (
+            await session.execute(select(ScrapeJob).order_by(ScrapeJob.created_at.desc()))
+        ).scalars().all()
+
+    docs_by_kb: dict[uuid.UUID | None, list[KnowledgeDocument]] = {}
+    for doc in docs:
+        docs_by_kb.setdefault(doc.knowledge_base_id, []).append(doc)
+
+    jobs_by_kb: dict[uuid.UUID | None, list[ScrapeJob]] = {}
+    for job in jobs:
+        jobs_by_kb.setdefault(job.knowledge_base_id, []).append(job)
+
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "knowledge_base_count": len(knowledge_bases),
+        "knowledge_bases": [
+            {
+                "knowledge_base": {
+                    "id": str(kb.id),
+                    "name": kb.name,
+                    "description": kb.description,
+                    "collection_name": kb.collection_name,
+                    "embedding_provider": kb.embedding_provider,
+                    "embedding_model": kb.embedding_model,
+                    "embedding_dimension": kb.embedding_dimension,
+                    "dimension_tag": kb.dimension_tag,
+                    "is_default": kb.is_default,
+                    "created_at": kb.created_at.isoformat(),
+                    "updated_at": kb.updated_at.isoformat(),
+                },
+                "sources": [
+                    {
+                        "id": str(doc.id),
+                        "title": doc.title,
+                        "source": doc.source,
+                        "doc_type": doc.doc_type,
+                        "chunk_count": doc.chunk_count,
+                        "size_bytes": doc.size_bytes,
+                        "ingested_at": doc.ingested_at.isoformat(),
+                    }
+                    for doc in docs_by_kb.get(kb.id, [])
+                ],
+                "jobs": [
+                    {
+                        "id": str(job.id),
+                        "domain": job.domain,
+                        "status": job.status,
+                        "max_pages": job.max_pages,
+                        "max_size_mb": job.max_size_mb,
+                        "topic_filter": job.topic_filter,
+                        "pages_scraped": job.pages_scraped,
+                        "pages_found": job.pages_found,
+                        "bytes_scraped": job.bytes_scraped,
+                        "error": job.error,
+                        "created_at": job.created_at.isoformat(),
+                        "started_at": job.started_at.isoformat() if job.started_at else None,
+                        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                    }
+                    for job in jobs_by_kb.get(kb.id, [])
+                ],
+            }
+            for kb in knowledge_bases
+        ],
+    }
+
+    body = json.dumps(payload, ensure_ascii=True, indent=2)
+    headers = {"Content-Disposition": 'attachment; filename="knowledge-bases-export.json"'}
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
+@router.get("/bases/{knowledge_base_id}/download")
+async def download_knowledge_base(knowledge_base_id: str, _: CurrentUser) -> Response:
+    """Download a knowledge base export (metadata + source documents) as JSON."""
+    try:
+        kb_id = uuid.UUID(knowledge_base_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid knowledge_base_id") from exc
+
+    async with AsyncSessionLocal() as session:
+        kb = await session.get(KnowledgeBase, kb_id)
+        if not kb:
+            raise HTTPException(status_code=404, detail="Knowledge base not found")
+
+        docs = (
+            await session.execute(
+                select(KnowledgeDocument)
+                .where(KnowledgeDocument.knowledge_base_id == kb_id)
+                .order_by(KnowledgeDocument.ingested_at.desc())
+            )
+        ).scalars().all()
+
+        jobs = (
+            await session.execute(
+                select(ScrapeJob)
+                .where(ScrapeJob.knowledge_base_id == kb_id)
+                .order_by(ScrapeJob.created_at.desc())
+            )
+        ).scalars().all()
+
+    payload = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "knowledge_base": {
+            "id": str(kb.id),
+            "name": kb.name,
+            "description": kb.description,
+            "collection_name": kb.collection_name,
+            "embedding_provider": kb.embedding_provider,
+            "embedding_model": kb.embedding_model,
+            "embedding_dimension": kb.embedding_dimension,
+            "dimension_tag": kb.dimension_tag,
+            "is_default": kb.is_default,
+            "created_at": kb.created_at.isoformat(),
+            "updated_at": kb.updated_at.isoformat(),
+        },
+        "sources": [
+            {
+                "id": str(doc.id),
+                "title": doc.title,
+                "source": doc.source,
+                "doc_type": doc.doc_type,
+                "chunk_count": doc.chunk_count,
+                "size_bytes": doc.size_bytes,
+                "ingested_at": doc.ingested_at.isoformat(),
+            }
+            for doc in docs
+        ],
+        "jobs": [
+            {
+                "id": str(job.id),
+                "domain": job.domain,
+                "status": job.status,
+                "max_pages": job.max_pages,
+                "max_size_mb": job.max_size_mb,
+                "topic_filter": job.topic_filter,
+                "pages_scraped": job.pages_scraped,
+                "pages_found": job.pages_found,
+                "bytes_scraped": job.bytes_scraped,
+                "error": job.error,
+                "created_at": job.created_at.isoformat(),
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            }
+            for job in jobs
+        ],
+    }
+
+    filename = f"{_slugify_filename(kb.name)}-export.json"
+    body = json.dumps(payload, ensure_ascii=True, indent=2)
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 @router.post("/scrape", response_model=ScrapeJobResponse, status_code=202)
