@@ -26,6 +26,9 @@ class MigrationRequest(BaseModel):
     skip_existing: bool = True
     include_static_members: bool = False
     migrate_dependencies: bool = False
+    selected_dependency_script_ids: list[int] | None = None
+    selected_dependency_group_ids: list[int] | None = None
+    selected_dependency_categories: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_servers_differ(self) -> "MigrationRequest":
@@ -50,3 +53,22 @@ class MigrationResponse(BaseModel):
     skipped: int
     failed: int
     results: list[MigrationItemResult]
+
+
+class MigrationDependencyItem(BaseModel):
+    dependency_type: Literal["script", "group", "category"]
+    id: int | None = None
+    name: str
+
+
+class MigrationPreflightItem(BaseModel):
+    object_id: int
+    name: str
+    dependencies: list[MigrationDependencyItem]
+
+
+class MigrationPreflightResponse(BaseModel):
+    entity_type: EntityType
+    source_server_id: uuid.UUID
+    target_server_id: uuid.UUID
+    items: list[MigrationPreflightItem]

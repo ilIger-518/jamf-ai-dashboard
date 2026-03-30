@@ -20,6 +20,9 @@ from app.dependencies import ManageMigratorUser
 from app.models.server import JamfServer
 from app.schemas.migrator import (
     ListMigratorObjectsResponse,
+    MigrationDependencyItem,
+    MigrationPreflightItem,
+    MigrationPreflightResponse,
     MigrationItemResult,
     MigrationRequest,
     MigrationResponse,
@@ -339,6 +342,8 @@ async def _migrate_policy_dependencies(
     target_token: str,
     policy_detail: dict,
     include_static_members: bool,
+    allowed_script_ids: set[int] | None = None,
+    allowed_group_ids: set[int] | None = None,
 ) -> tuple[dict[int, int], dict[int, int], list[str]]:
     """Ensure referenced scripts/groups exist on target and return source->target ID maps."""
     script_refs, group_refs = _collect_policy_dependency_refs(policy_detail)
@@ -349,6 +354,8 @@ async def _migrate_policy_dependencies(
     missing: list[str] = []
 
     for src_script_id, script_name in script_refs.items():
+        if allowed_script_ids is not None and src_script_id not in allowed_script_ids:
+            continue
         if script_name in target_scripts:
             continue
 
@@ -366,6 +373,8 @@ async def _migrate_policy_dependencies(
         await _create_on_target(client, target_base_url, target_token, "script", payload)
 
     for src_group_id, group_name in group_refs.items():
+        if allowed_group_ids is not None and src_group_id not in allowed_group_ids:
+            continue
         if group_name in target_groups:
             continue
 
@@ -397,6 +406,8 @@ async def _migrate_policy_dependencies(
     group_id_map: dict[int, int] = {}
 
     for src_script_id, script_name in script_refs.items():
+        if allowed_script_ids is not None and src_script_id not in allowed_script_ids:
+            continue
         target_id = target_scripts.get(script_name)
         if target_id is None:
             missing.append(f"script:{script_name}")
@@ -404,6 +415,8 @@ async def _migrate_policy_dependencies(
         script_id_map[src_script_id] = target_id
 
     for src_group_id, group_name in group_refs.items():
+        if allowed_group_ids is not None and src_group_id not in allowed_group_ids:
+            continue
         target_id = target_groups.get(group_name)
         if target_id is None:
             missing.append(f"group:{group_name}")
@@ -661,6 +674,69 @@ async def _ensure_payload_categories_exist(
     return created
 
 
+def _filter_policy_payload_dependencies(
+    node: object,
+    *,
+    allowed_script_ids: set[int] | None,
+    allowed_group_ids: set[int] | None,
+    allowed_categories: set[str] | None,
+    parent_key: str | None = None,
+) -> object | None:
+    """Strip unselected policy dependencies from payload so target uses nothing for unchecked items."""
+    if isinstance(node, list):
+        out: list[object] = []
+        for item in node:
+            filtered = _filter_policy_payload_dependencies(
+                item,
+                allowed_script_ids=allowed_script_ids,
+                allowed_group_ids=allowed_group_ids,
+                allowed_categories=allowed_categories,
+                parent_key=parent_key,
+            )
+            if filtered is not None:
+                out.append(filtered)
+        return out
+
+    if isinstance(node, dict):
+        if parent_key in {"script", "computer_group"}:
+            raw_id = node.get("id")
+            try:
+                dep_id = int(raw_id)
+            except (TypeError, ValueError):
+                dep_id = None
+            if parent_key == "script" and allowed_script_ids is not None and dep_id is not None and dep_id not in allowed_script_ids:
+                return None
+            if parent_key == "computer_group" and allowed_group_ids is not None and dep_id is not None and dep_id not in allowed_group_ids:
+                return None
+
+        out: dict = {}
+        for k, v in node.items():
+            if k == "category":
+                if allowed_categories is None:
+                    out[k] = v
+                elif isinstance(v, str):
+                    if v in allowed_categories:
+                        out[k] = v
+                elif isinstance(v, dict):
+                    name = v.get("name")
+                    if isinstance(name, str) and name in allowed_categories:
+                        out[k] = v
+                continue
+
+            filtered = _filter_policy_payload_dependencies(
+                v,
+                allowed_script_ids=allowed_script_ids,
+                allowed_group_ids=allowed_group_ids,
+                allowed_categories=allowed_categories,
+                parent_key=k,
+            )
+            if filtered is not None:
+                out[k] = filtered
+        return out
+
+    return node
+
+
 @router.get("/objects", response_model=ListMigratorObjectsResponse)
 async def list_objects(
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -756,6 +832,25 @@ async def migrate_objects(
                     raise RuntimeError("Invalid payload received from source")
 
                 if body.entity_type == "policy":
+                    script_refs, group_refs = _collect_policy_dependency_refs(detail)
+                    category_refs = _extract_category_names_from_payload(detail)
+
+                    allowed_script_ids = (
+                        set(body.selected_dependency_script_ids)
+                        if body.selected_dependency_script_ids is not None
+                        else set(script_refs.keys())
+                    )
+                    allowed_group_ids = (
+                        set(body.selected_dependency_group_ids)
+                        if body.selected_dependency_group_ids is not None
+                        else set(group_refs.keys())
+                    )
+                    allowed_categories = (
+                        set(body.selected_dependency_categories)
+                        if body.selected_dependency_categories is not None
+                        else set(category_refs)
+                    )
+
                     script_id_map: dict[int, int] = {}
                     group_id_map: dict[int, int] = {}
 
@@ -769,6 +864,8 @@ async def migrate_objects(
                             target_token=target_token,
                             policy_detail=detail,
                             include_static_members=body.include_static_members,
+                            allowed_script_ids=allowed_script_ids,
+                            allowed_group_ids=allowed_group_ids,
                         )
                         if missing:
                             raise RuntimeError(
@@ -785,6 +882,17 @@ async def migrate_objects(
                     )
                     if not isinstance(payload, dict):
                         raise RuntimeError("Invalid policy payload after sanitization")
+
+                    filtered_payload = _filter_policy_payload_dependencies(
+                        payload,
+                        allowed_script_ids=allowed_script_ids,
+                        allowed_group_ids=allowed_group_ids,
+                        allowed_categories=allowed_categories,
+                    )
+                    if not isinstance(filtered_payload, dict):
+                        raise RuntimeError("Invalid policy payload after dependency filtering")
+                    payload = filtered_payload
+
                     payload = _remap_policy_reference_ids(
                         payload,
                         script_id_map=script_id_map,
@@ -882,4 +990,82 @@ async def migrate_objects(
         skipped=skipped,
         failed=failed,
         results=results,
+    )
+
+
+@router.post("/preflight", response_model=MigrationPreflightResponse)
+async def preflight_migration(
+    body: MigrationRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: ManageMigratorUser,
+) -> MigrationPreflightResponse:
+    """Preview migration dependencies so UI can present checkbox selections before migrate."""
+    source = await _load_server(db, body.source_server_id)
+    target = await _load_server(db, body.target_server_id)
+
+    if body.entity_type != "policy":
+        items = [
+            MigrationPreflightItem(
+                object_id=object_id,
+                name=f"Object {object_id}",
+                dependencies=[],
+            )
+            for object_id in body.object_ids
+        ]
+        return MigrationPreflightResponse(
+            entity_type=body.entity_type,
+            source_server_id=body.source_server_id,
+            target_server_id=body.target_server_id,
+            items=items,
+        )
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        source_token = await _get_oauth_token(
+            client,
+            source.url.rstrip("/"),
+            decrypt(source.client_id),
+            decrypt(source.client_secret),
+        )
+        target_token = await _get_oauth_token(
+            client,
+            target.url.rstrip("/"),
+            decrypt(target.client_id),
+            decrypt(target.client_secret),
+        )
+
+        target_scripts = await _list_target_scripts_by_name(client, target.url.rstrip("/"), target_token)
+        target_groups = await _list_target_groups_by_name(client, target.url.rstrip("/"), target_token)
+        target_categories = await _list_target_categories_by_name(client, target.url.rstrip("/"), target_token)
+
+        items: list[MigrationPreflightItem] = []
+        for object_id in body.object_ids:
+            detail = await _fetch_object_detail(
+                client,
+                source.url.rstrip("/"),
+                source_token,
+                "policy",
+                object_id,
+            )
+            name = str(detail.get("name") or f"Object {object_id}")
+            script_refs, group_refs = _collect_policy_dependency_refs(detail)
+            category_refs = _extract_category_names_from_payload(detail)
+
+            deps: list[MigrationDependencyItem] = []
+            for sid, sname in script_refs.items():
+                if sname not in target_scripts:
+                    deps.append(MigrationDependencyItem(dependency_type="script", id=sid, name=sname))
+            for gid, gname in group_refs.items():
+                if gname not in target_groups:
+                    deps.append(MigrationDependencyItem(dependency_type="group", id=gid, name=gname))
+            for cname in sorted(category_refs):
+                if cname not in target_categories:
+                    deps.append(MigrationDependencyItem(dependency_type="category", name=cname))
+
+            items.append(MigrationPreflightItem(object_id=object_id, name=name, dependencies=deps))
+
+    return MigrationPreflightResponse(
+        entity_type=body.entity_type,
+        source_server_id=body.source_server_id,
+        target_server_id=body.target_server_id,
+        items=items,
     )

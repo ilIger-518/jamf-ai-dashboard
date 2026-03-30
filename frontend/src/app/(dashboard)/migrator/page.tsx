@@ -43,6 +43,25 @@ interface MigrationResponse {
   results: MigrationItemResult[];
 }
 
+interface MigrationDependencyItem {
+  dependency_type: "script" | "group" | "category";
+  id: number | null;
+  name: string;
+}
+
+interface MigrationPreflightItem {
+  object_id: number;
+  name: string;
+  dependencies: MigrationDependencyItem[];
+}
+
+interface MigrationPreflightResponse {
+  entity_type: EntityType;
+  source_server_id: string;
+  target_server_id: string;
+  items: MigrationPreflightItem[];
+}
+
 const ENTITY_OPTIONS: { label: string; value: EntityType; helper: string }[] = [
   { label: "Policies", value: "policy", helper: "Classic policies and settings" },
   { label: "Smart Groups", value: "smart_group", helper: "Computer groups with criteria" },
@@ -64,6 +83,10 @@ export default function MigratorPage() {
   const [migrateDependencies, setMigrateDependencies] = useState(true);
   const [lastResult, setLastResult] = useState<MigrationResponse | null>(null);
   const [selectedResult, setSelectedResult] = useState<MigrationItemResult | null>(null);
+  const [preflightResult, setPreflightResult] = useState<MigrationPreflightResponse | null>(null);
+  const [selectedDependencyScriptIds, setSelectedDependencyScriptIds] = useState<number[]>([]);
+  const [selectedDependencyGroupIds, setSelectedDependencyGroupIds] = useState<number[]>([]);
+  const [selectedDependencyCategories, setSelectedDependencyCategories] = useState<string[]>([]);
 
   const { data: servers = [], isLoading: serversLoading } = useQuery<JamfServer[]>({
     queryKey: ["servers"],
@@ -98,6 +121,9 @@ export default function MigratorPage() {
           skip_existing: skipExisting,
           include_static_members: includeStaticMembers,
           migrate_dependencies: migrateDependencies,
+          selected_dependency_script_ids: entityType === "policy" ? selectedDependencyScriptIds : undefined,
+          selected_dependency_group_ids: entityType === "policy" ? selectedDependencyGroupIds : undefined,
+          selected_dependency_categories: entityType === "policy" ? selectedDependencyCategories : undefined,
         })
         .then((r) => r.data),
     onSuccess: (data) => {
@@ -108,6 +134,47 @@ export default function MigratorPage() {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
         "Migration failed";
+      toast.error(msg);
+    },
+  });
+
+  const preflightMutation = useMutation<MigrationPreflightResponse, Error>({
+    mutationFn: () =>
+      api
+        .post<MigrationPreflightResponse>("/migrator/preflight", {
+          source_server_id: sourceServerId,
+          target_server_id: targetServerId,
+          entity_type: entityType,
+          object_ids: selectedIds,
+          skip_existing: skipExisting,
+          include_static_members: includeStaticMembers,
+          migrate_dependencies: migrateDependencies,
+        })
+        .then((r) => r.data),
+    onSuccess: (data) => {
+      setPreflightResult(data);
+
+      const scriptIds = new Set<number>();
+      const groupIds = new Set<number>();
+      const categories = new Set<string>();
+
+      data.items.forEach((item) => {
+        item.dependencies.forEach((dep) => {
+          if (dep.dependency_type === "script" && dep.id != null) scriptIds.add(dep.id);
+          if (dep.dependency_type === "group" && dep.id != null) groupIds.add(dep.id);
+          if (dep.dependency_type === "category") categories.add(dep.name);
+        });
+      });
+
+      setSelectedDependencyScriptIds(Array.from(scriptIds));
+      setSelectedDependencyGroupIds(Array.from(groupIds));
+      setSelectedDependencyCategories(Array.from(categories));
+      toast.success("Dependency preflight completed");
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Preflight failed";
       toast.error(msg);
     },
   });
@@ -139,6 +206,21 @@ export default function MigratorPage() {
 
   const onToggleOne = (id: number) => {
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setPreflightResult(null);
+  };
+
+  const toggleScriptDependency = (id: number) => {
+    setSelectedDependencyScriptIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleGroupDependency = (id: number) => {
+    setSelectedDependencyGroupIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleCategoryDependency = (name: string) => {
+    setSelectedDependencyCategories((prev) =>
+      prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name],
+    );
   };
 
   const sourceName = servers.find((s) => s.id === sourceServerId)?.name;
@@ -165,6 +247,7 @@ export default function MigratorPage() {
                 setSourceServerId(e.target.value);
                 setSelectedIds([]);
                 setLastResult(null);
+                setPreflightResult(null);
               }}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
             >
@@ -185,6 +268,7 @@ export default function MigratorPage() {
               onChange={(e) => {
                 setTargetServerId(e.target.value);
                 setLastResult(null);
+                setPreflightResult(null);
               }}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
             >
@@ -207,6 +291,7 @@ export default function MigratorPage() {
                 setEntityType(opt.value);
                 setSelectedIds([]);
                 setLastResult(null);
+                setPreflightResult(null);
               }}
               className={cn(
                 "rounded-lg border px-3 py-2 text-left transition",
@@ -318,15 +403,116 @@ export default function MigratorPage() {
             ? `Migrate ${selectedIds.length} ${entityType.replace("_", " ")} object(s) from ${sourceName} to ${targetName}`
             : "Choose source and target servers, then select objects to migrate."}
         </div>
-        <button
-          onClick={() => migrateMutation.mutate()}
-          disabled={!canRunMigration}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {migrateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
-          Run Migration
-        </button>
+        <div className="flex items-center gap-2">
+          {entityType === "policy" && (
+            <button
+              onClick={() => preflightMutation.mutate()}
+              disabled={!canRunMigration || preflightMutation.isPending}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              {preflightMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Analyze Dependencies
+            </button>
+          )}
+          <button
+            onClick={() => migrateMutation.mutate()}
+            disabled={!canRunMigration}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {migrateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
+            Run Migration
+          </button>
+        </div>
       </div>
+
+      {entityType === "policy" && preflightResult && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="text-sm font-medium text-gray-800 dark:text-gray-100">Dependency Selection</h3>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Unchecked dependencies will be removed from the migrated policy payload (uses nothing).
+          </p>
+
+          <div className="mt-3 grid gap-4 md:grid-cols-3">
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Scripts</p>
+              <div className="max-h-48 space-y-1 overflow-auto rounded border border-gray-200 p-2 dark:border-gray-700">
+                {Array.from(
+                  new Map(
+                    preflightResult.items
+                      .flatMap((item) => item.dependencies)
+                      .filter((dep) => dep.dependency_type === "script" && dep.id != null)
+                      .map((dep) => [dep.id as number, dep]),
+                  ).values(),
+                ).map((dep) => (
+                  <label key={`script-${dep.id}`} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={selectedDependencyScriptIds.includes(dep.id as number)}
+                      onChange={() => toggleScriptDependency(dep.id as number)}
+                    />
+                    <span>#{dep.id} {dep.name}</span>
+                  </label>
+                ))}
+                {preflightResult.items.every((item) => item.dependencies.every((dep) => dep.dependency_type !== "script")) && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">No missing scripts</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Groups</p>
+              <div className="max-h-48 space-y-1 overflow-auto rounded border border-gray-200 p-2 dark:border-gray-700">
+                {Array.from(
+                  new Map(
+                    preflightResult.items
+                      .flatMap((item) => item.dependencies)
+                      .filter((dep) => dep.dependency_type === "group" && dep.id != null)
+                      .map((dep) => [dep.id as number, dep]),
+                  ).values(),
+                ).map((dep) => (
+                  <label key={`group-${dep.id}`} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={selectedDependencyGroupIds.includes(dep.id as number)}
+                      onChange={() => toggleGroupDependency(dep.id as number)}
+                    />
+                    <span>#{dep.id} {dep.name}</span>
+                  </label>
+                ))}
+                {preflightResult.items.every((item) => item.dependencies.every((dep) => dep.dependency_type !== "group")) && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">No missing groups</p>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">Categories</p>
+              <div className="max-h-48 space-y-1 overflow-auto rounded border border-gray-200 p-2 dark:border-gray-700">
+                {Array.from(
+                  new Set(
+                    preflightResult.items
+                      .flatMap((item) => item.dependencies)
+                      .filter((dep) => dep.dependency_type === "category")
+                      .map((dep) => dep.name),
+                  ),
+                ).map((name) => (
+                  <label key={`category-${name}`} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
+                    <input
+                      type="checkbox"
+                      checked={selectedDependencyCategories.includes(name)}
+                      onChange={() => toggleCategoryDependency(name)}
+                    />
+                    <span>{name}</span>
+                  </label>
+                ))}
+                {preflightResult.items.every((item) => item.dependencies.every((dep) => dep.dependency_type !== "category")) && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">No missing categories</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {lastResult && (
         <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
