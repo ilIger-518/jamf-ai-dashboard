@@ -704,10 +704,14 @@ def _filter_policy_payload_dependencies(
                 dep_id = int(raw_id)
             except (TypeError, ValueError):
                 dep_id = None
-            if parent_key == "script" and allowed_script_ids is not None and dep_id is not None and dep_id not in allowed_script_ids:
-                return None
-            if parent_key == "computer_group" and allowed_group_ids is not None and dep_id is not None and dep_id not in allowed_group_ids:
-                return None
+            # If dependency selection is explicit and this reference has no usable source ID,
+            # drop it to avoid unresolved target references (Jamf 409 "Unable to match computer group").
+            if parent_key == "script" and allowed_script_ids is not None:
+                if dep_id is None or dep_id not in allowed_script_ids:
+                    return None
+            if parent_key == "computer_group" and allowed_group_ids is not None:
+                if dep_id is None or dep_id not in allowed_group_ids:
+                    return None
 
         out: dict = {}
         for k, v in node.items():
