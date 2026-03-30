@@ -44,6 +44,7 @@ _MAX_QUEUE_URLS = 20000
 _MAX_EMBED_TEXT_CHARS = 250_000
 _SITEMAP_SEED_TIMEOUT_SECONDS = 90
 _SUB_SITEMAP_CONCURRENCY = 8
+_SCRAPE_FETCH_CONCURRENCY = max(1, min(8, int(os.environ.get("SCRAPE_FETCH_CONCURRENCY", "4"))))
 
 # Matches Zoomin Software documentation page URLs:
 # /[locale]/bundle/{bundleId}/page/{topicFile}.html
@@ -147,6 +148,52 @@ async def _append_job_log(job_id: str, message: str, level: str = "info") -> Non
             await session.commit()
     except Exception as exc:
         logger.debug("Failed to append scrape job log for %s: %s", job_id, exc)
+
+
+async def _fetch_candidate_page(
+    http: httpx.AsyncClient,
+    url: str,
+    start_netloc: str,
+) -> dict:
+    """Fetch and pre-parse a page; returns {'status': 'ok'|'skip', ...} payload."""
+    resp = await http.get(url)
+    if resp.status_code != 200:
+        return {"status": "skip", "reason": f"HTTP {resp.status_code}"}
+
+    final_netloc = urlparse(str(resp.url)).netloc
+    if final_netloc != start_netloc:
+        return {"status": "skip", "reason": f"redirected to different domain: {final_netloc}"}
+
+    final_path = urlparse(str(resp.url)).path
+    if _LOGIN_PATH_RE.search(final_path):
+        return {"status": "skip", "reason": f"auth/login page: {resp.url}"}
+
+    ct = resp.headers.get("content-type", "")
+    if "text/html" not in ct:
+        return {"status": "skip", "reason": f"non-HTML content ({ct or 'unknown content-type'})"}
+
+    html = resp.text
+    text = _extract_text(html)
+    zoomin_title = ""
+
+    if len(text) < 300:
+        zoomin = await _try_zoomin_content(http, url, html)
+        if zoomin:
+            topic_html, zoomin_title = zoomin
+            text = _extract_text(topic_html)
+
+    if len(text) < 100:
+        return {"status": "skip", "reason": f"low-content page ({len(text)} chars)"}
+
+    links = [link for link in _extract_links(html, url) if _same_domain(url, link)]
+
+    return {
+        "status": "ok",
+        "html": html,
+        "text": text,
+        "zoomin_title": zoomin_title,
+        "links": links,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -516,205 +563,190 @@ async def run_scrape_job(job_id: str) -> None:
                     )
                     break
 
-                url = queue.popleft()
-                queued.discard(url)
-                if url in visited:
-                    continue
-                if SKIP_PATTERNS.search(urlparse(url).path):
-                    await _append_job_log(job_id, f"Skipping non-content URL by extension: {url}")
-                    continue
-                visited.add(url)
-                async with AsyncSessionLocal() as session:
-                    job_row = await session.get(ScrapeJob, uuid.UUID(job_id))
-                    if job_row:
-                        job_row.last_url = url
-                        await session.commit()
-                await _append_job_log(job_id, f"Visiting: {url}")
-
-                resp = await http.get(url)
-                if resp.status_code != 200:
-                    await _append_job_log(job_id, f"Skipped {url} (HTTP {resp.status_code})", "warning")
-                    continue
-
-                # Login/redirect detection: skip if redirected outside the original domain
-                final_netloc = urlparse(str(resp.url)).netloc
-                if final_netloc != start_netloc:
-                    logger.debug("Skipping %s — redirected to %s (login?)", url, final_netloc)
-                    await _append_job_log(
-                        job_id,
-                        f"Skipped {url} (redirected to different domain: {final_netloc})",
-                        "warning",
-                    )
-                    continue
-
-                # Skip login / auth pages by URL path
-                final_path = urlparse(str(resp.url)).path
-                if _LOGIN_PATH_RE.search(final_path):
-                    logger.debug("Skipping login/auth page: %s", resp.url)
-                    await _append_job_log(job_id, f"Skipped auth/login page: {resp.url}")
-                    continue
-
-                ct = resp.headers.get("content-type", "")
-                if "text/html" not in ct:
-                    await _append_job_log(job_id, f"Skipped non-HTML content: {url} ({ct or 'unknown content-type'})")
-                    continue
-
-                html = resp.text
-                text = _extract_text(html)
-
-                # If text extraction yielded very little content, check whether
-                # this is a Zoomin Software SPA and try the backend JSON API
-                zoomin_title: str = ""
-                if len(text) < 300:
-                    zoomin = await _try_zoomin_content(http, url, html)
-                    if zoomin:
-                        topic_html, zoomin_title = zoomin
-                        text = _extract_text(topic_html)
-                        logger.debug("Used Zoomin API for %s (%d chars)", url, len(text))
-
-                if len(text) < 100:
-                    await _append_job_log(job_id, f"Skipped low-content page: {url} ({len(text)} chars)")
-                    continue
-
-                if len(text) > _MAX_EMBED_TEXT_CHARS:
-                    await _append_job_log(
-                        job_id,
-                        f"Truncated very large page before embedding: {url} ({len(text)} chars)",
-                        "warning",
-                    )
-                    text = text[:_MAX_EMBED_TEXT_CHARS]
-
-                doc_size = len(text.encode("utf-8", errors="replace"))
-                content_hash = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
-
-                existing: KnowledgeDocument | None = None
-                async with AsyncSessionLocal() as session:
-                    existing = (
-                        await session.execute(
-                            select(KnowledgeDocument).where(
-                                KnowledgeDocument.source == url,
-                                KnowledgeDocument.knowledge_base_id == knowledge_base_id,
-                            )
-                        )
-                    ).scalar_one_or_none()
-
-                # Topic filter check
-                if topic_filter:
-                    relevant = await _llm_is_relevant(text, topic_filter)
-                    if not relevant:
-                        logger.debug("Skipping (off-topic): %s", url)
-                        await _append_job_log(job_id, f"Skipped off-topic page: {url}")
-                        # Still enqueue child links so we don't miss nested pages
-                        for link in _extract_links(html, url):
-                            if _same_domain(start_url, link):
-                                _enqueue(link)
+                batch_urls: list[str] = []
+                while queue and len(batch_urls) < _SCRAPE_FETCH_CONCURRENCY:
+                    candidate_url = queue.popleft()
+                    queued.discard(candidate_url)
+                    if candidate_url in visited:
                         continue
+                    if SKIP_PATTERNS.search(urlparse(candidate_url).path):
+                        await _append_job_log(job_id, f"Skipping non-content URL by extension: {candidate_url}")
+                        continue
+                    visited.add(candidate_url)
+                    batch_urls.append(candidate_url)
 
-                title = zoomin_title or _page_title(html, url)
-                embedding_threads = _cpu_cap_to_ollama_threads(cpu_cap_mode, cpu_cap_percent)
-                if existing and existing.file_hash == content_hash:
-                    chunk_count = existing.chunk_count
-                    await _append_job_log(job_id, f"Skipped re-embedding unchanged page: {url}")
-                else:
-                    await _append_job_log(
-                        job_id,
-                        (
-                            f"Embedding with thread cap {embedding_threads} "
-                            f"(mode={cpu_cap_mode}, cap={cpu_cap_percent}%)"
-                        ),
-                    )
-                    # Embed + store in ChromaDB
-                    chunk_count, _ = await ingest_document(
-                        source_url=url,
-                        title=title,
-                        text=text,
-                        num_thread=embedding_threads,
-                        collection_name=knowledge_collection_name,
-                    )
+                if not batch_urls:
+                    continue
 
-                bytes_scraped += len(html.encode("utf-8", errors="replace"))
-
-                # Record in Postgres
-                async with AsyncSessionLocal() as session:
-                    existing = (
-                        await session.execute(
-                            select(KnowledgeDocument).where(
-                                KnowledgeDocument.source == url,
-                                KnowledgeDocument.knowledge_base_id == knowledge_base_id,
-                            )
-                        )
-                    ).scalar_one_or_none()
-                    if existing:
-                        existing.chunk_count = chunk_count
-                        existing.title = title
-                        existing.size_bytes = doc_size
-                        existing.file_hash = content_hash
-                    else:
-                        session.add(
-                            KnowledgeDocument(
-                                title=title,
-                                source=url,
-                                doc_type="url",
-                                chunk_count=chunk_count,
-                                size_bytes=doc_size,
-                                file_hash=content_hash,
-                                collection_name=knowledge_collection_name,
-                                knowledge_base_id=knowledge_base_id,
-                            )
-                        )
-                    await session.commit()
-
-                pages_scraped += 1
-                logger.info(
-                    "Scraped page %d (%.1f MB): %s",
-                    pages_scraped,
-                    bytes_scraped / 1048576,
-                    url,
-                )
                 await _append_job_log(
                     job_id,
-                    f"Scraped page {pages_scraped}: {url}",
+                    f"Fetching batch of {len(batch_urls)} page(s) with concurrency cap {_SCRAPE_FETCH_CONCURRENCY}",
                 )
 
-                # Update progress in job row every 5 pages
-                if pages_scraped % 5 == 0:
+                fetch_results = await asyncio.gather(
+                    *[_fetch_candidate_page(http, u, start_netloc) for u in batch_urls],
+                    return_exceptions=True,
+                )
+
+                for url, fetched in zip(batch_urls, fetch_results, strict=False):
                     async with AsyncSessionLocal() as session:
                         job_row = await session.get(ScrapeJob, uuid.UUID(job_id))
                         if job_row:
-                            job_row.pages_scraped = pages_scraped
-                            job_row.pages_found = len(visited) + len(queued)
-                            job_row.bytes_scraped = bytes_scraped
                             job_row.last_url = url
                             await session.commit()
+                    await _append_job_log(job_id, f"Visiting: {url}")
 
-                # Enqueue child links
-                added_links = 0
-                dropped_links = 0
-                for link in _extract_links(html, url):
-                    if _same_domain(start_url, link):
+                    if isinstance(fetched, Exception):
+                        logger.warning("Failed to fetch %s: %s", url, fetched)
+                        errors.append(f"{url}: {fetched}")
+                        await _append_job_log(job_id, f"Failed to fetch {url}: {fetched}", "error")
+                        continue
+
+                    if fetched.get("status") != "ok":
+                        await _append_job_log(job_id, f"Skipped {url} ({fetched.get('reason', 'unknown reason')})", "warning")
+                        continue
+
+                    html = str(fetched["html"])
+                    text = str(fetched["text"])
+                    zoomin_title = str(fetched.get("zoomin_title") or "")
+                    child_links = list(fetched.get("links") or [])
+
+                    if len(text) > _MAX_EMBED_TEXT_CHARS:
+                        await _append_job_log(
+                            job_id,
+                            f"Truncated very large page before embedding: {url} ({len(text)} chars)",
+                            "warning",
+                        )
+                        text = text[:_MAX_EMBED_TEXT_CHARS]
+
+                    doc_size = len(text.encode("utf-8", errors="replace"))
+                    content_hash = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+                    existing: KnowledgeDocument | None = None
+                    async with AsyncSessionLocal() as session:
+                        existing = (
+                            await session.execute(
+                                select(KnowledgeDocument).where(
+                                    KnowledgeDocument.source == url,
+                                    KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                                )
+                            )
+                        ).scalar_one_or_none()
+
+                    # Topic filter check
+                    if topic_filter:
+                        relevant = await _llm_is_relevant(text, topic_filter)
+                        if not relevant:
+                            logger.debug("Skipping (off-topic): %s", url)
+                            await _append_job_log(job_id, f"Skipped off-topic page: {url}")
+                            for link in child_links:
+                                _enqueue(link)
+                            continue
+
+                    title = zoomin_title or _page_title(html, url)
+                    embedding_threads = _cpu_cap_to_ollama_threads(cpu_cap_mode, cpu_cap_percent)
+                    if existing and existing.file_hash == content_hash:
+                        chunk_count = existing.chunk_count
+                        await _append_job_log(job_id, f"Skipped re-embedding unchanged page: {url}")
+                    else:
+                        await _append_job_log(
+                            job_id,
+                            (
+                                f"Embedding with thread cap {embedding_threads} "
+                                f"(mode={cpu_cap_mode}, cap={cpu_cap_percent}%)"
+                            ),
+                        )
+                        # Embed + store in ChromaDB
+                        chunk_count, _ = await ingest_document(
+                            source_url=url,
+                            title=title,
+                            text=text,
+                            num_thread=embedding_threads,
+                            collection_name=knowledge_collection_name,
+                        )
+
+                    bytes_scraped += len(html.encode("utf-8", errors="replace"))
+
+                    # Record in Postgres
+                    async with AsyncSessionLocal() as session:
+                        existing = (
+                            await session.execute(
+                                select(KnowledgeDocument).where(
+                                    KnowledgeDocument.source == url,
+                                    KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                                )
+                            )
+                        ).scalar_one_or_none()
+                        if existing:
+                            existing.chunk_count = chunk_count
+                            existing.title = title
+                            existing.size_bytes = doc_size
+                            existing.file_hash = content_hash
+                        else:
+                            session.add(
+                                KnowledgeDocument(
+                                    title=title,
+                                    source=url,
+                                    doc_type="url",
+                                    chunk_count=chunk_count,
+                                    size_bytes=doc_size,
+                                    file_hash=content_hash,
+                                    collection_name=knowledge_collection_name,
+                                    knowledge_base_id=knowledge_base_id,
+                                )
+                            )
+                        await session.commit()
+
+                    pages_scraped += 1
+                    logger.info(
+                        "Scraped page %d (%.1f MB): %s",
+                        pages_scraped,
+                        bytes_scraped / 1048576,
+                        url,
+                    )
+                    await _append_job_log(
+                        job_id,
+                        f"Scraped page {pages_scraped}: {url}",
+                    )
+
+                    # Update progress in job row every 5 pages
+                    if pages_scraped % 5 == 0:
+                        async with AsyncSessionLocal() as session:
+                            job_row = await session.get(ScrapeJob, uuid.UUID(job_id))
+                            if job_row:
+                                job_row.pages_scraped = pages_scraped
+                                job_row.pages_found = len(visited) + len(queued)
+                                job_row.bytes_scraped = bytes_scraped
+                                job_row.last_url = url
+                                await session.commit()
+
+                    # Enqueue child links
+                    added_links = 0
+                    dropped_links = 0
+                    for link in child_links:
                         if _enqueue(link):
                             added_links += 1
                         else:
                             dropped_links += 1
 
-                if added_links:
-                    await _append_job_log(
-                        job_id,
-                        f"Discovered {added_links} new links from {url}; queue size now {len(queue)}",
-                    )
-                if dropped_links and len(queued) >= _MAX_QUEUE_URLS:
-                    await _append_job_log(
-                        job_id,
-                        f"Queue cap reached ({_MAX_QUEUE_URLS}); dropped {dropped_links} discovered links",
-                        "warning",
-                    )
+                    if added_links:
+                        await _append_job_log(
+                            job_id,
+                            f"Discovered {added_links} new links from {url}; queue size now {len(queue)}",
+                        )
+                    if dropped_links and len(queued) >= _MAX_QUEUE_URLS:
+                        await _append_job_log(
+                            job_id,
+                            f"Queue cap reached ({_MAX_QUEUE_URLS}); dropped {dropped_links} discovered links",
+                            "warning",
+                        )
 
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                logger.warning("Failed to scrape %s: %s", url, exc)
-                errors.append(f"{url}: {exc}")
-                await _append_job_log(job_id, f"Failed to scrape {url}: {exc}", "error")
+                logger.warning("Scrape batch loop error: %s", exc)
+                errors.append(f"batch: {exc}")
+                await _append_job_log(job_id, f"Scrape batch loop error: {exc}", "error")
                 continue
             finally:
                 # Enforce CPU cap on every loop pass, including early-continue branches.
