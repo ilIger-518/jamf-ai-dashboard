@@ -52,10 +52,25 @@ def upgrade() -> None:
             sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
             sa.Column("name", sa.String(length=64), nullable=False),
             sa.Column("description", sa.Text(), nullable=True),
-            sa.Column("permissions", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'[]'::jsonb")),
+            sa.Column(
+                "permissions",
+                postgresql.JSONB(astext_type=sa.Text()),
+                nullable=False,
+                server_default=sa.text("'[]'::jsonb"),
+            ),
             sa.Column("is_system", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
             sa.PrimaryKeyConstraint("id"),
         )
     else:
@@ -73,7 +88,9 @@ def upgrade() -> None:
         if "is_system" not in role_columns:
             op.add_column(
                 "roles",
-                sa.Column("is_system", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+                sa.Column(
+                    "is_system", sa.Boolean(), nullable=False, server_default=sa.text("false")
+                ),
             )
 
     role_indexes = (
@@ -94,7 +111,9 @@ def upgrade() -> None:
 
     fk_names = {fk["name"] for fk in inspector.get_foreign_keys("users")}
     if "fk_users_role_id_roles" not in fk_names:
-        op.create_foreign_key("fk_users_role_id_roles", "users", "roles", ["role_id"], ["id"], ondelete="SET NULL")
+        op.create_foreign_key(
+            "fk_users_role_id_roles", "users", "roles", ["role_id"], ["id"], ondelete="SET NULL"
+        )
 
     roles_table = sa.table(
         "roles",
@@ -112,7 +131,8 @@ def upgrade() -> None:
     )
 
     connection.execute(
-        postgresql.insert(roles_table).values(
+        postgresql.insert(roles_table)
+        .values(
             [
                 {
                     "id": ADMIN_ROLE_ID,
@@ -129,11 +149,16 @@ def upgrade() -> None:
                     "is_system": True,
                 },
             ]
-        ).on_conflict_do_nothing(index_elements=["id"])
+        )
+        .on_conflict_do_nothing(index_elements=["id"])
     )
 
-    connection.execute(users_table.update().where(users_table.c.is_admin.is_(True)).values(role_id=ADMIN_ROLE_ID))
-    connection.execute(users_table.update().where(users_table.c.is_admin.is_(False)).values(role_id=VIEWER_ROLE_ID))
+    connection.execute(
+        users_table.update().where(users_table.c.is_admin.is_(True)).values(role_id=ADMIN_ROLE_ID)
+    )
+    connection.execute(
+        users_table.update().where(users_table.c.is_admin.is_(False)).values(role_id=VIEWER_ROLE_ID)
+    )
 
 
 def downgrade() -> None:

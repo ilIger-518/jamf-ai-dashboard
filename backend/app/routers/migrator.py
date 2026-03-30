@@ -103,7 +103,9 @@ async def _list_source_objects(
             raise HTTPException(status_code=502, detail="Failed to list policies from source")
         items = _normalize_list_payload(resp.json(), "policies", "policy")
         return [
-            MigratorObject(id=int(i["id"]), name=i.get("name") or f"Policy {i['id']}", entity_type="policy")
+            MigratorObject(
+                id=int(i["id"]), name=i.get("name") or f"Policy {i['id']}", entity_type="policy"
+            )
             for i in items
             if i.get("id")
         ]
@@ -117,7 +119,9 @@ async def _list_source_objects(
             raise HTTPException(status_code=502, detail="Failed to list scripts from source")
         items = _normalize_list_payload(resp.json(), "scripts", "script")
         return [
-            MigratorObject(id=int(i["id"]), name=i.get("name") or f"Script {i['id']}", entity_type="script")
+            MigratorObject(
+                id=int(i["id"]), name=i.get("name") or f"Script {i['id']}", entity_type="script"
+            )
             for i in items
             if i.get("id")
         ]
@@ -546,9 +550,7 @@ async def _create_on_target(
         if idx < len(bodies) - 1:
             continue
 
-    raise RuntimeError(
-        f"Target create failed: HTTP {last_status} {last_text}"
-    )
+    raise RuntimeError(f"Target create failed: HTTP {last_status} {last_text}")
 
 
 def _dict_to_xml(root_name: str, value: object) -> str:
@@ -623,7 +625,9 @@ async def _create_category_on_target(
     # 409 means already exists (race or concurrent migration)
     if resp.status_code in (200, 201, 409):
         return
-    raise RuntimeError(f"Failed to create category '{category_name}' on target: HTTP {resp.status_code}")
+    raise RuntimeError(
+        f"Failed to create category '{category_name}' on target: HTTP {resp.status_code}"
+    )
 
 
 def _extract_category_names_from_payload(node: object) -> set[str]:
@@ -872,7 +876,8 @@ async def migrate_objects(
                         )
                         if missing:
                             raise RuntimeError(
-                                "Missing dependencies on target after migration: " + ", ".join(missing)
+                                "Missing dependencies on target after migration: "
+                                + ", ".join(missing)
                             )
                         item_logs.append(
                             f"Dependencies ready: scripts={len(script_id_map)} groups={len(group_id_map)}"
@@ -933,7 +938,9 @@ async def migrate_objects(
                         body.entity_type in {"policy", "script"}
                         and "No match found for category" in err
                     ):
-                        item_logs.append("Retrying without category because target category reference is invalid")
+                        item_logs.append(
+                            "Retrying without category because target category reference is invalid"
+                        )
                         payload_no_category = deepcopy(payload)
                         if isinstance(payload_no_category, dict):
                             if "category" in payload_no_category:
@@ -1036,9 +1043,15 @@ async def preflight_migration(
             decrypt(target.client_secret),
         )
 
-        target_scripts = await _list_target_scripts_by_name(client, target.url.rstrip("/"), target_token)
-        target_groups = await _list_target_groups_by_name(client, target.url.rstrip("/"), target_token)
-        target_categories = await _list_target_categories_by_name(client, target.url.rstrip("/"), target_token)
+        target_scripts = await _list_target_scripts_by_name(
+            client, target.url.rstrip("/"), target_token
+        )
+        target_groups = await _list_target_groups_by_name(
+            client, target.url.rstrip("/"), target_token
+        )
+        target_categories = await _list_target_categories_by_name(
+            client, target.url.rstrip("/"), target_token
+        )
 
         items: list[MigrationPreflightItem] = []
         for object_id in body.object_ids:
@@ -1056,10 +1069,14 @@ async def preflight_migration(
             deps: list[MigrationDependencyItem] = []
             for sid, sname in script_refs.items():
                 if sname not in target_scripts:
-                    deps.append(MigrationDependencyItem(dependency_type="script", id=sid, name=sname))
+                    deps.append(
+                        MigrationDependencyItem(dependency_type="script", id=sid, name=sname)
+                    )
             for gid, gname in group_refs.items():
                 if gname not in target_groups:
-                    deps.append(MigrationDependencyItem(dependency_type="group", id=gid, name=gname))
+                    deps.append(
+                        MigrationDependencyItem(dependency_type="group", id=gid, name=gname)
+                    )
             for cname in sorted(category_refs):
                 if cname not in target_categories:
                     deps.append(MigrationDependencyItem(dependency_type="category", name=cname))

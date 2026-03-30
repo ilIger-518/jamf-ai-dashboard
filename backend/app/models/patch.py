@@ -13,12 +13,13 @@ from app.database import Base
 class PatchTitle(Base):
     __tablename__ = "patch_titles"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     jamf_id: Mapped[int] = mapped_column(Integer, nullable=False)
     server_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("jamf_servers.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("jamf_servers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     software_title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     current_version: Mapped[str | None] = mapped_column(String(64), nullable=True)

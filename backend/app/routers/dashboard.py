@@ -76,9 +76,7 @@ async def get_stats(
     if server_id:
         os_dist_q = os_dist_q.where(Device.server_id == server_id)
     os_dist_result = await db.execute(os_dist_q)
-    os_distribution = [
-        OsVersionCount(os_version=row[0], count=row[1]) for row in os_dist_result
-    ]
+    os_distribution = [OsVersionCount(os_version=row[0], count=row[1]) for row in os_dist_result]
 
     patch_sum_q = (
         select(PatchTitle.software_title, PatchTitle.patched_count, PatchTitle.unpatched_count)

@@ -30,7 +30,9 @@ def upgrade() -> None:
     if "name" in columns:
         conn.execute(sa.text("UPDATE patch_titles SET name = software_title WHERE name IS NULL"))
         if not columns["name"]["nullable"]:
-            op.alter_column("patch_titles", "name", existing_type=sa.String(length=255), nullable=True)
+            op.alter_column(
+                "patch_titles", "name", existing_type=sa.String(length=255), nullable=True
+            )
 
 
 def downgrade() -> None:

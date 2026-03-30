@@ -13,10 +13,10 @@ from app.database import Base
 class DashboardLog(Base):
     __tablename__ = "dashboard_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    category: Mapped[str] = mapped_column(String(16), nullable=False, index=True)  # server|login|action
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category: Mapped[str] = mapped_column(
+        String(16), nullable=False, index=True
+    )  # server|login|action
     action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     level: Mapped[str] = mapped_column(String(16), nullable=False, server_default="info")
     message: Mapped[str] = mapped_column(Text, nullable=False)

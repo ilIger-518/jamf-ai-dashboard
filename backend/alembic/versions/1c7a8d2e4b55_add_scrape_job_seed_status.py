@@ -29,7 +29,9 @@ def upgrade() -> None:
     if "seed_mode" not in columns:
         op.add_column(
             "scrape_jobs",
-            sa.Column("seed_mode", sa.String(length=16), nullable=False, server_default="start_url"),
+            sa.Column(
+                "seed_mode", sa.String(length=16), nullable=False, server_default="start_url"
+            ),
         )
     if "seed_urls" not in columns:
         op.add_column(
@@ -39,7 +41,9 @@ def upgrade() -> None:
     if "sitemap_timed_out" not in columns:
         op.add_column(
             "scrape_jobs",
-            sa.Column("sitemap_timed_out", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+            sa.Column(
+                "sitemap_timed_out", sa.Boolean(), nullable=False, server_default=sa.text("false")
+            ),
         )
 
 

@@ -13,13 +13,14 @@ from app.database import Base
 class Device(Base):
     __tablename__ = "devices"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     # Jamf-side integer ID — combined with server_id gives a unique key
     jamf_id: Mapped[int] = mapped_column(Integer, nullable=False)
     server_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("jamf_servers.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("jamf_servers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
 
     # Identity
@@ -41,7 +42,9 @@ class Device(Base):
     # Management
     is_managed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_supervised: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    last_contact: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_contact: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     last_enrollment: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Organisational
@@ -75,9 +78,7 @@ class Device(Base):
 class DeviceApplication(Base):
     __tablename__ = "device_applications"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -94,17 +95,20 @@ class DevicePolicy(Base):
 
     __tablename__ = "device_policies"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
     )
     policy_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("policies.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("policies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     last_executed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    result: Mapped[str | None] = mapped_column(String(32), nullable=True)  # "success" | "failed" | "pending"
+    result: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )  # "success" | "failed" | "pending"
 
     device: Mapped["Device"] = relationship("Device", back_populates="policy_history")
     policy: Mapped["Policy"] = relationship("Policy")  # noqa: F821

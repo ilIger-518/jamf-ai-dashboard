@@ -39,6 +39,7 @@ _SYNC_STATUS_TTL = 3600  # Redis key TTL in seconds
 # Redis helpers
 # ---------------------------------------------------------------------------
 
+
 def _redis_key(server_id: str) -> str:
     return f"sync:status:{server_id}"
 
@@ -86,7 +87,10 @@ async def _set_sync_result(server_id: str, payload: dict) -> None:
 # OAuth token
 # ---------------------------------------------------------------------------
 
-async def _get_oauth_token(client: httpx.AsyncClient, base_url: str, client_id: str, client_secret: str) -> str:
+
+async def _get_oauth_token(
+    client: httpx.AsyncClient, base_url: str, client_id: str, client_secret: str
+) -> str:
     """Obtain a short-lived bearer token via client_credentials grant."""
     resp = await client.post(
         f"{base_url}/api/oauth/token",
@@ -98,15 +102,14 @@ async def _get_oauth_token(client: httpx.AsyncClient, base_url: str, client_id: 
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     if resp.status_code not in (200, 201):
-        raise RuntimeError(
-            f"Jamf Pro OAuth failed ({resp.status_code}): {resp.text[:200]}"
-        )
+        raise RuntimeError(f"Jamf Pro OAuth failed ({resp.status_code}): {resp.text[:200]}")
     return resp.json()["access_token"]
 
 
 # ---------------------------------------------------------------------------
 # Computer upsert helpers
 # ---------------------------------------------------------------------------
+
 
 def _parse_dt(value: str | None) -> datetime | None:
     if not value:
@@ -152,6 +155,7 @@ async def _purge_missing_by_jamf_id(db_session, model, server_id, seen_ids: set[
 # Response has nested dicts: general{}, hardware{}, location{}
 # ---------------------------------------------------------------------------
 
+
 async def _sync_computers_v2(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
 ) -> tuple[int, int, int] | None:
@@ -193,24 +197,29 @@ async def _sync_computers_v2(
             location = comp.get("location") or {}
             mdm = general.get("mdmCapable") or {}
 
-            action = await _upsert_device(db_session, server.id, jamf_id, {
-                "name": general.get("name") or comp.get("name") or f"Computer {jamf_id}",
-                "udid": comp.get("udid"),
-                "serial_number": comp.get("serialNumber"),
-                "model": hardware.get("model"),
-                "os_version": hardware.get("osVersion"),
-                "os_build": hardware.get("osBuild"),
-                "processor": hardware.get("processorType"),
-                "ram_mb": hardware.get("totalRamMegabytes"),
-                "is_managed": bool(mdm.get("capable", False)),
-                "is_supervised": bool(general.get("supervised", False)),
-                "last_contact": _parse_dt(general.get("lastContactTime")),
-                "username": location.get("username"),
-                "full_name": location.get("realname"),
-                "email": location.get("emailAddress"),
-                "department": location.get("department"),
-                "building": location.get("building"),
-            })
+            action = await _upsert_device(
+                db_session,
+                server.id,
+                jamf_id,
+                {
+                    "name": general.get("name") or comp.get("name") or f"Computer {jamf_id}",
+                    "udid": comp.get("udid"),
+                    "serial_number": comp.get("serialNumber"),
+                    "model": hardware.get("model"),
+                    "os_version": hardware.get("osVersion"),
+                    "os_build": hardware.get("osBuild"),
+                    "processor": hardware.get("processorType"),
+                    "ram_mb": hardware.get("totalRamMegabytes"),
+                    "is_managed": bool(mdm.get("capable", False)),
+                    "is_supervised": bool(general.get("supervised", False)),
+                    "last_contact": _parse_dt(general.get("lastContactTime")),
+                    "username": location.get("username"),
+                    "full_name": location.get("realname"),
+                    "email": location.get("emailAddress"),
+                    "department": location.get("department"),
+                    "building": location.get("building"),
+                },
+            )
             if action == "created":
                 created_count += 1
             else:
@@ -226,7 +235,9 @@ async def _sync_computers_v2(
 
     deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
 
-    logger.info("v2 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "v2 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted
+    )
     return created_count, updated_count, deleted
 
 
@@ -234,6 +245,7 @@ async def _sync_computers_v2(
 # Strategy 2: /api/v1/computers-preview  (Jamf Pro 10.32–10.48)
 # Flat JSON response
 # ---------------------------------------------------------------------------
+
 
 async def _sync_computers_v1(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
@@ -270,23 +282,28 @@ async def _sync_computers_v1(
                 continue
             seen_ids.add(jamf_id)
 
-            action = await _upsert_device(db_session, server.id, jamf_id, {
-                "name": comp.get("name") or f"Computer {jamf_id}",
-                "udid": comp.get("udid"),
-                "serial_number": comp.get("serialNumber"),
-                "model": comp.get("model"),
-                "os_version": comp.get("osVersion"),
-                "os_build": comp.get("osBuild"),
-                "is_managed": bool(comp.get("managed", False)),
-                "is_supervised": bool(comp.get("supervised", False)),
-                "last_contact": _parse_dt(comp.get("lastContactTime")),
-                "username": comp.get("username"),
-                "full_name": comp.get("realName"),
-                "email": comp.get("email"),
-                "department": comp.get("departmentName"),
-                "building": comp.get("buildingName"),
-                "site": (comp.get("site") or {}).get("name"),
-            })
+            action = await _upsert_device(
+                db_session,
+                server.id,
+                jamf_id,
+                {
+                    "name": comp.get("name") or f"Computer {jamf_id}",
+                    "udid": comp.get("udid"),
+                    "serial_number": comp.get("serialNumber"),
+                    "model": comp.get("model"),
+                    "os_version": comp.get("osVersion"),
+                    "os_build": comp.get("osBuild"),
+                    "is_managed": bool(comp.get("managed", False)),
+                    "is_supervised": bool(comp.get("supervised", False)),
+                    "last_contact": _parse_dt(comp.get("lastContactTime")),
+                    "username": comp.get("username"),
+                    "full_name": comp.get("realName"),
+                    "email": comp.get("email"),
+                    "department": comp.get("departmentName"),
+                    "building": comp.get("buildingName"),
+                    "site": (comp.get("site") or {}).get("name"),
+                },
+            )
             if action == "created":
                 created_count += 1
             else:
@@ -302,7 +319,9 @@ async def _sync_computers_v1(
 
     deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
 
-    logger.info("v1 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "v1 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted
+    )
     return created_count, updated_count, deleted
 
 
@@ -310,6 +329,7 @@ async def _sync_computers_v1(
 # Strategy 3: /JSSResource/computers  (Classic API — all versions)
 # Fetches list for IDs, then per-device detail for hardware/OS fields
 # ---------------------------------------------------------------------------
+
 
 async def _fetch_computer_detail_classic(
     client: httpx.AsyncClient,
@@ -354,7 +374,10 @@ async def _sync_computers_classic(
     # Fetch full detail concurrently (max 10 in-flight)
     semaphore = asyncio.Semaphore(10)
     details = await asyncio.gather(
-        *[_fetch_computer_detail_classic(client, base_url, token, jid, semaphore) for jid in valid_ids]
+        *[
+            _fetch_computer_detail_classic(client, base_url, token, jid, semaphore)
+            for jid in valid_ids
+        ]
     )
 
     total_upserted = 0
@@ -369,27 +392,32 @@ async def _sync_computers_classic(
         location = detail.get("location") or {}
         remote_mgmt = general.get("remote_management") or {}
 
-        action = await _upsert_device(db_session, server.id, jamf_id, {
-            "name": general.get("name") or f"Computer {jamf_id}",
-            "udid": general.get("udid"),
-            "serial_number": general.get("serial_number"),
-            "asset_tag": general.get("asset_tag") or None,
-            "model": hardware.get("model"),
-            "model_identifier": hardware.get("model_identifier"),
-            "os_version": hardware.get("os_version"),
-            "os_build": hardware.get("os_build"),
-            "processor": hardware.get("processor_type"),
-            "ram_mb": hardware.get("total_ram") or None,
-            "is_managed": bool(remote_mgmt.get("managed", general.get("managed", False))),
-            "is_supervised": bool(general.get("supervised", False)),
-            "last_contact": _parse_dt(general.get("last_contact_time_utc")),
-            "last_enrollment": _parse_dt(general.get("last_enrolled_date_utc")),
-            "username": location.get("username"),
-            "full_name": location.get("realname") or location.get("real_name"),
-            "email": location.get("email_address"),
-            "department": location.get("department"),
-            "building": location.get("building"),
-        })
+        action = await _upsert_device(
+            db_session,
+            server.id,
+            jamf_id,
+            {
+                "name": general.get("name") or f"Computer {jamf_id}",
+                "udid": general.get("udid"),
+                "serial_number": general.get("serial_number"),
+                "asset_tag": general.get("asset_tag") or None,
+                "model": hardware.get("model"),
+                "model_identifier": hardware.get("model_identifier"),
+                "os_version": hardware.get("os_version"),
+                "os_build": hardware.get("os_build"),
+                "processor": hardware.get("processor_type"),
+                "ram_mb": hardware.get("total_ram") or None,
+                "is_managed": bool(remote_mgmt.get("managed", general.get("managed", False))),
+                "is_supervised": bool(general.get("supervised", False)),
+                "last_contact": _parse_dt(general.get("last_contact_time_utc")),
+                "last_enrollment": _parse_dt(general.get("last_enrolled_date_utc")),
+                "username": location.get("username"),
+                "full_name": location.get("realname") or location.get("real_name"),
+                "email": location.get("email_address"),
+                "department": location.get("department"),
+                "building": location.get("building"),
+            },
+        )
         if action == "created":
             created_count += 1
         else:
@@ -398,13 +426,16 @@ async def _sync_computers_classic(
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
-    logger.info("classic sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "classic sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted
+    )
     return created_count, updated_count, deleted
 
 
 # ---------------------------------------------------------------------------
 # Dispatcher — tries strategies in order
 # ---------------------------------------------------------------------------
+
 
 async def _sync_computers(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
@@ -421,6 +452,7 @@ async def _sync_computers(
 # ---------------------------------------------------------------------------
 # Policy sync — Jamf Pro REST API (/api/v1/policies), Classic fallback
 # ---------------------------------------------------------------------------
+
 
 async def _upsert_policy(db_session, server_id, jamf_id: int, fields: dict) -> str:
     existing = await db_session.execute(
@@ -476,7 +508,9 @@ async def _fetch_policy_detail_v1(
             if resp.status_code == 404:
                 return None
             if resp.status_code != 200:
-                logger.warning("Skipping policy %s (v1 detail): HTTP %d", policy_id, resp.status_code)
+                logger.warning(
+                    "Skipping policy %s (v1 detail): HTTP %d", policy_id, resp.status_code
+                )
                 return None
             return resp.json()
         except Exception as exc:  # noqa: BLE001
@@ -550,16 +584,21 @@ async def _sync_policies_v1(
         general = src.get("general") or src  # v1 may be flat or nested
         scope = src.get("scope") or {}
 
-        action = await _upsert_policy(db_session, server.id, jamf_id, {
-            "name": general.get("name") or src.get("name") or f"Policy {jamf_id}",
-            "enabled": bool(general.get("enabled", src.get("enabled", True))),
-            "category": (general.get("category") or {}).get("name")
-                        or src.get("categoryName")
-                        or None,
-            "trigger": general.get("trigger") or src.get("trigger") or None,
-            "scope_description": _scope_description_from_modern(scope),
-            "payload_description": None,
-        })
+        action = await _upsert_policy(
+            db_session,
+            server.id,
+            jamf_id,
+            {
+                "name": general.get("name") or src.get("name") or f"Policy {jamf_id}",
+                "enabled": bool(general.get("enabled", src.get("enabled", True))),
+                "category": (general.get("category") or {}).get("name")
+                or src.get("categoryName")
+                or None,
+                "trigger": general.get("trigger") or src.get("trigger") or None,
+                "scope_description": _scope_description_from_modern(scope),
+                "payload_description": None,
+            },
+        )
         if action == "created":
             created_count += 1
         else:
@@ -568,7 +607,9 @@ async def _sync_policies_v1(
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
-    logger.info("v1 policy sync: %d policies from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "v1 policy sync: %d policies from %s (deleted stale: %d)", total_upserted, base_url, deleted
+    )
     return created_count, updated_count, deleted
 
 
@@ -587,7 +628,9 @@ async def _fetch_policy_detail_classic(
                 headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
             )
             if resp.status_code != 200:
-                logger.warning("Skipping policy %d (classic detail): HTTP %d", policy_id, resp.status_code)
+                logger.warning(
+                    "Skipping policy %d (classic detail): HTTP %d", policy_id, resp.status_code
+                )
                 return None
             return resp.json().get("policy", {})
         except Exception as exc:  # noqa: BLE001
@@ -620,7 +663,9 @@ async def _sync_policies_classic(
     if not policy_stubs:
         logger.info("No policies found via Classic API on %s", base_url)
         deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, set())
-        logger.info("classic policy sync: 0 policies from %s (deleted stale: %d)", base_url, deleted)
+        logger.info(
+            "classic policy sync: 0 policies from %s (deleted stale: %d)", base_url, deleted
+        )
         return 0, 0, deleted
 
     valid_stubs = [s for s in policy_stubs if s.get("id")]
@@ -656,14 +701,19 @@ async def _sync_policies_classic(
             if names:
                 scope_parts.append("Groups: " + ", ".join(names))
 
-        action = await _upsert_policy(db_session, server.id, jamf_id, {
-            "name": general.get("name") or stub.get("name") or f"Policy {jamf_id}",
-            "enabled": bool(general.get("enabled", True)),
-            "category": (general.get("category") or {}).get("name") or None,
-            "trigger": general.get("trigger") or None,
-            "scope_description": "; ".join(scope_parts) if scope_parts else None,
-            "payload_description": None,
-        })
+        action = await _upsert_policy(
+            db_session,
+            server.id,
+            jamf_id,
+            {
+                "name": general.get("name") or stub.get("name") or f"Policy {jamf_id}",
+                "enabled": bool(general.get("enabled", True)),
+                "category": (general.get("category") or {}).get("name") or None,
+                "trigger": general.get("trigger") or None,
+                "scope_description": "; ".join(scope_parts) if scope_parts else None,
+                "payload_description": None,
+            },
+        )
         if action == "created":
             created_count += 1
         else:
@@ -672,7 +722,12 @@ async def _sync_policies_classic(
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
-    logger.info("classic policy sync: %d policies from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "classic policy sync: %d policies from %s (deleted stale: %d)",
+        total_upserted,
+        base_url,
+        deleted,
+    )
     return created_count, updated_count, deleted
 
 
@@ -683,13 +738,16 @@ async def _sync_policies(
     result = await _sync_policies_v1(db_session, server, client, token)
     if result is not None:
         return result
-    logger.warning("Jamf Pro REST API policy endpoint unavailable on %s, using Classic API", server.url)
+    logger.warning(
+        "Jamf Pro REST API policy endpoint unavailable on %s, using Classic API", server.url
+    )
     return await _sync_policies_classic(db_session, server, client, token)
 
 
 # ---------------------------------------------------------------------------
 # Smart group sync — Classic API (/JSSResource/computergroups)
 # ---------------------------------------------------------------------------
+
 
 async def _upsert_smart_group(db_session, server_id, jamf_id: int, fields: dict) -> str:
     existing = await db_session.execute(
@@ -768,8 +826,11 @@ async def _sync_smart_groups(
 
     semaphore = asyncio.Semaphore(10)
     details = await asyncio.gather(
-        *[_fetch_smart_group_detail(client, base_url, token, int(g["id"]), semaphore)
-          for g in smart_stubs if g.get("id")]
+        *[
+            _fetch_smart_group_detail(client, base_url, token, int(g["id"]), semaphore)
+            for g in smart_stubs
+            if g.get("id")
+        ]
     )
 
     total_upserted = 0
@@ -799,11 +860,16 @@ async def _sync_smart_groups(
         else:
             member_count = detail.get("size") or len(computers_raw)
 
-        action = await _upsert_smart_group(db_session, server.id, jamf_id, {
-            "name": detail.get("name") or stub.get("name") or f"Group {jamf_id}",
-            "criteria": criteria if criteria else None,
-            "member_count": member_count,
-        })
+        action = await _upsert_smart_group(
+            db_session,
+            server.id,
+            jamf_id,
+            {
+                "name": detail.get("name") or stub.get("name") or f"Group {jamf_id}",
+                "criteria": criteria if criteria else None,
+                "member_count": member_count,
+            },
+        )
         if action == "created":
             created_count += 1
         else:
@@ -812,13 +878,16 @@ async def _sync_smart_groups(
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, seen_ids)
-    logger.info("smart group sync: %d groups from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "smart group sync: %d groups from %s (deleted stale: %d)", total_upserted, base_url, deleted
+    )
     return created_count, updated_count, deleted
 
 
 # ---------------------------------------------------------------------------
 # Patch title sync — modern API first, Classic fallback
 # ---------------------------------------------------------------------------
+
 
 async def _upsert_patch_title(db_session, server_id, jamf_id: int, fields: dict) -> str:
     existing = await db_session.execute(
@@ -885,7 +954,11 @@ async def _sync_patches_modern(
             all_items.extend(r.json().get("results") or [])
             page += 1
 
-    seen_ids = {int(item.get("id", 0) or 0) for item in all_items if isinstance(item, dict) and item.get("id")}
+    seen_ids = {
+        int(item.get("id", 0) or 0)
+        for item in all_items
+        if isinstance(item, dict) and item.get("id")
+    }
     created_count = 0
     updated_count = 0
 
@@ -897,13 +970,18 @@ async def _sync_patches_modern(
             continue
         enrolled = int(item.get("enrolledDeviceCount") or 0)
         installed = int(item.get("installedDeviceCount") or 0)
-        action = await _upsert_patch_title(db_session, server.id, jamf_id, {
-            "software_title": item.get("softwareTitleName") or f"Title {jamf_id}",
-            "latest_version": item.get("targetPatchVersion") or None,
-            "current_version": item.get("targetPatchVersion") or None,
-            "patched_count": installed,
-            "unpatched_count": max(enrolled - installed, 0),
-        })
+        action = await _upsert_patch_title(
+            db_session,
+            server.id,
+            jamf_id,
+            {
+                "software_title": item.get("softwareTitleName") or f"Title {jamf_id}",
+                "latest_version": item.get("targetPatchVersion") or None,
+                "current_version": item.get("targetPatchVersion") or None,
+                "patched_count": installed,
+                "unpatched_count": max(enrolled - installed, 0),
+            },
+        )
         if action == "created":
             created_count += 1
         else:
@@ -912,7 +990,12 @@ async def _sync_patches_modern(
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
-    logger.info("modern patch sync: %d titles from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "modern patch sync: %d titles from %s (deleted stale: %d)",
+        total_upserted,
+        base_url,
+        deleted,
+    )
     return created_count, updated_count, deleted
 
 
@@ -926,7 +1009,9 @@ async def _sync_patches_classic(
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     if resp.status_code != 200:
-        logger.warning("GET /JSSResource/patchsoftwaretitles returned %d — skipping", resp.status_code)
+        logger.warning(
+            "GET /JSSResource/patchsoftwaretitles returned %d — skipping", resp.status_code
+        )
         return 0
 
     raw = resp.json()
@@ -945,13 +1030,18 @@ async def _sync_patches_classic(
         jamf_id = int(stub.get("id", 0))
         if not jamf_id:
             continue
-        action = await _upsert_patch_title(db_session, server.id, jamf_id, {
-            "software_title": stub.get("name") or f"Title {jamf_id}",
-            "latest_version": stub.get("current_version") or None,
-            "current_version": stub.get("current_version") or None,
-            "patched_count": 0,
-            "unpatched_count": 0,
-        })
+        action = await _upsert_patch_title(
+            db_session,
+            server.id,
+            jamf_id,
+            {
+                "software_title": stub.get("name") or f"Title {jamf_id}",
+                "latest_version": stub.get("current_version") or None,
+                "current_version": stub.get("current_version") or None,
+                "patched_count": 0,
+                "unpatched_count": 0,
+            },
+        )
         if action == "created":
             created_count += 1
         else:
@@ -960,7 +1050,12 @@ async def _sync_patches_classic(
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
-    logger.info("classic patch sync: %d titles from %s (deleted stale: %d)", total_upserted, base_url, deleted)
+    logger.info(
+        "classic patch sync: %d titles from %s (deleted stale: %d)",
+        total_upserted,
+        base_url,
+        deleted,
+    )
     return created_count, updated_count, deleted
 
 
@@ -978,6 +1073,7 @@ async def _sync_patches(
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 async def sync_server(server_id: str) -> None:
     """Full sync for one Jamf Pro server. Runs as a fire-and-forget task."""
@@ -999,10 +1095,18 @@ async def sync_server(server_id: str) -> None:
 
             async with httpx.AsyncClient(timeout=120) as http:
                 token = await _get_oauth_token(http, server.url, client_id, client_secret)
-                device_created, device_updated, device_deleted = await _sync_computers(db, server, http, token)
-                policy_created, policy_updated, policy_deleted = await _sync_policies(db, server, http, token)
-                sg_created, sg_updated, sg_deleted = await _sync_smart_groups(db, server, http, token)
-                patch_created, patch_updated, patch_deleted = await _sync_patches(db, server, http, token)
+                device_created, device_updated, device_deleted = await _sync_computers(
+                    db, server, http, token
+                )
+                policy_created, policy_updated, policy_deleted = await _sync_policies(
+                    db, server, http, token
+                )
+                sg_created, sg_updated, sg_deleted = await _sync_smart_groups(
+                    db, server, http, token
+                )
+                patch_created, patch_updated, patch_deleted = await _sync_patches(
+                    db, server, http, token
+                )
 
             server.last_sync = datetime.now(UTC)
             server.last_sync_error = None
@@ -1100,9 +1204,7 @@ async def sync_server(server_id: str) -> None:
 async def sync_all_servers() -> None:
     """Kick off sync for every active server concurrently."""
     async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(JamfServer).where(JamfServer.is_active.is_(True))
-        )
+        result = await db.execute(select(JamfServer).where(JamfServer.is_active.is_(True)))
         servers = result.scalars().all()
 
     await asyncio.gather(*(sync_server(str(s.id)) for s in servers), return_exceptions=True)

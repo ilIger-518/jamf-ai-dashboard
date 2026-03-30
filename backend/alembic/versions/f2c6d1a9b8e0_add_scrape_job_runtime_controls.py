@@ -29,12 +29,16 @@ def upgrade() -> None:
     if "pause_requested" not in columns:
         op.add_column(
             "scrape_jobs",
-            sa.Column("pause_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+            sa.Column(
+                "pause_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")
+            ),
         )
     if "cancel_requested" not in columns:
         op.add_column(
             "scrape_jobs",
-            sa.Column("cancel_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")),
+            sa.Column(
+                "cancel_requested", sa.Boolean(), nullable=False, server_default=sa.text("false")
+            ),
         )
     if "cpu_cap_mode" not in columns:
         op.add_column(

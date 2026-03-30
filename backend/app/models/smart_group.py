@@ -13,12 +13,13 @@ from app.database import Base
 class SmartGroup(Base):
     __tablename__ = "smart_groups"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     jamf_id: Mapped[int] = mapped_column(Integer, nullable=False)
     server_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("jamf_servers.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("jamf_servers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     # JSON list of criterion dicts: [{name, priority, and_or, search_type, value}, ...]

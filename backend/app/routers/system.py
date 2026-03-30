@@ -125,7 +125,9 @@ async def apply_update(_: AdminUser) -> dict:
     return await _updater("POST", "/apply")
 
 
-@router.get("/docker-logs", response_model=DockerLogsResponse, summary="Get docker compose logs (admin)")
+@router.get(
+    "/docker-logs", response_model=DockerLogsResponse, summary="Get docker compose logs (admin)"
+)
 async def get_docker_logs(
     _: AdminUser,
     service: str | None = None,
@@ -143,7 +145,9 @@ async def get_ai_config(_: AdminUser) -> dict:
     return await _updater("GET", "/ai-config")
 
 
-@router.post("/ai-config", response_model=AIConfigResponse, summary="Save AI provider config (admin)")
+@router.post(
+    "/ai-config", response_model=AIConfigResponse, summary="Save AI provider config (admin)"
+)
 async def set_ai_config(payload: AIConfigPayload, _: AdminUser) -> dict:
     return await _updater("POST", "/ai-config", payload.model_dump())
 
@@ -171,7 +175,11 @@ def _candidate_log_dirs() -> list[Path]:
     return out
 
 
-@router.get("/server-logs", response_model=ServerLogsIndexResponse, summary="List persistent server run logs")
+@router.get(
+    "/server-logs",
+    response_model=ServerLogsIndexResponse,
+    summary="List persistent server run logs",
+)
 async def list_server_logs(_: CurrentUser) -> ServerLogsIndexResponse:
     candidate_dirs = _candidate_log_dirs()
     for c in candidate_dirs:
@@ -183,7 +191,9 @@ async def list_server_logs(_: CurrentUser) -> ServerLogsIndexResponse:
     seen_files: set[str] = set()
     selected_dir = candidate_dirs[0]
     for log_dir in candidate_dirs:
-        for path in sorted(log_dir.glob("server-*.log"), key=lambda p: p.stat().st_mtime, reverse=True):
+        for path in sorted(
+            log_dir.glob("server-*.log"), key=lambda p: p.stat().st_mtime, reverse=True
+        ):
             if path.name in seen_files:
                 continue
             seen_files.add(path.name)

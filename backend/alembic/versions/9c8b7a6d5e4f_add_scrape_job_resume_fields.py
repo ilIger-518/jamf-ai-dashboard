@@ -29,7 +29,10 @@ def upgrade() -> None:
     columns = {col["name"] for col in inspector.get_columns("scrape_jobs")}
 
     if "continued_from_job_id" not in columns:
-        op.add_column("scrape_jobs", sa.Column("continued_from_job_id", postgresql.UUID(as_uuid=True), nullable=True))
+        op.add_column(
+            "scrape_jobs",
+            sa.Column("continued_from_job_id", postgresql.UUID(as_uuid=True), nullable=True),
+        )
     if "last_url" not in columns:
         op.add_column("scrape_jobs", sa.Column("last_url", sa.String(length=1024), nullable=True))
 

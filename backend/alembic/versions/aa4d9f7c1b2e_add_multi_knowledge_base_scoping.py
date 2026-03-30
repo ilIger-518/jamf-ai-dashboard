@@ -37,8 +37,18 @@ def upgrade() -> None:
             sa.Column("embedding_dimension", sa.Integer(), nullable=True),
             sa.Column("dimension_tag", sa.String(length=64), nullable=True),
             sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-            sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column(
+                "updated_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("name", name="uq_knowledge_bases_name"),
             sa.UniqueConstraint("collection_name", name="uq_knowledge_bases_collection_name"),
@@ -48,7 +58,9 @@ def upgrade() -> None:
     else:
         kb_columns = {col["name"] for col in inspector.get_columns("knowledge_bases")}
         if "dimension_tag" not in kb_columns:
-            op.add_column("knowledge_bases", sa.Column("dimension_tag", sa.String(length=64), nullable=True))
+            op.add_column(
+                "knowledge_bases", sa.Column("dimension_tag", sa.String(length=64), nullable=True)
+            )
 
     default_kb_id: uuid.UUID
     default_row = conn.execute(
@@ -119,7 +131,12 @@ def upgrade() -> None:
             )
         scrape_indexes = {idx["name"] for idx in inspector.get_indexes("scrape_jobs")}
         if "ix_scrape_jobs_knowledge_base_id" not in scrape_indexes:
-            op.create_index("ix_scrape_jobs_knowledge_base_id", "scrape_jobs", ["knowledge_base_id"], unique=False)
+            op.create_index(
+                "ix_scrape_jobs_knowledge_base_id",
+                "scrape_jobs",
+                ["knowledge_base_id"],
+                unique=False,
+            )
         conn.execute(
             sa.text(
                 "UPDATE scrape_jobs SET knowledge_base_id = :kb_id WHERE knowledge_base_id IS NULL"

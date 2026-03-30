@@ -13,16 +13,12 @@ from app.database import Base
 class ScrapeJob(Base):
     __tablename__ = "scrape_jobs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     domain: Mapped[str] = mapped_column(String(1024), nullable=False)
     max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = unlimited
     max_size_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = no size limit
     topic_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
-    knowledge_base_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    knowledge_base_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # "pending" | "running" | "completed" | "completed_with_errors" | "failed"
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
@@ -49,9 +45,5 @@ class ScrapeJob(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    started_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    finished_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

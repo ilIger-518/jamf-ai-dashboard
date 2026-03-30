@@ -99,7 +99,7 @@ async def _create_client(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"An API integration named '{display_name}' already exists in Jamf Pro. "
-                       f"Delete it first or use the existing credentials.",
+                f"Delete it first or use the existing credentials.",
             )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -187,7 +187,9 @@ async def delete_server(server_id: uuid.UUID, db: DBSession, _: ManageServersUse
 
 
 @router.post("/provision", response_model=ProvisionResult, status_code=status.HTTP_201_CREATED)
-async def provision_server(body: ServerProvision, db: DBSession, _: ManageServersUser) -> ProvisionResult:
+async def provision_server(
+    body: ServerProvision, db: DBSession, _: ManageServersUser
+) -> ProvisionResult:
     """Auto-provision a Jamf Pro server.
 
     Uses the supplied admin credentials to:
@@ -256,6 +258,7 @@ async def provision_server(body: ServerProvision, db: DBSession, _: ManageServer
 # Manual sync endpoints
 # ---------------------------------------------------------------------------
 
+
 @router.post("/{server_id}/sync", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_sync(server_id: uuid.UUID, db: DBSession, _: ManageServerSyncUser) -> dict:
     """Kick off a background sync for a specific server."""
@@ -312,4 +315,3 @@ async def get_all_server_sync_statuses(db: DBSession, _: CurrentUser) -> list[di
             }
         )
     return rows
-

@@ -170,7 +170,9 @@ def upgrade() -> None:
     if "ix_patch_titles_server_id" not in pt_indexes and "server_id" in pt_columns:
         op.create_index("ix_patch_titles_server_id", "patch_titles", ["server_id"], unique=False)
     if "ix_patch_titles_software_title" not in pt_indexes and "software_title" in pt_columns:
-        op.create_index("ix_patch_titles_software_title", "patch_titles", ["software_title"], unique=False)
+        op.create_index(
+            "ix_patch_titles_software_title", "patch_titles", ["software_title"], unique=False
+        )
 
 
 def downgrade() -> None:

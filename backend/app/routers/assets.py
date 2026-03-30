@@ -78,9 +78,7 @@ def _extract_script_parameters(payload: dict) -> list[ScriptParameter]:
         normalized = str(value).strip()
         if not normalized:
             continue
-        out.append(
-            ScriptParameter(index=idx, label=f"Parameter {idx}", value=normalized)
-        )
+        out.append(ScriptParameter(index=idx, label=f"Parameter {idx}", value=normalized))
     return out
 
 
@@ -248,7 +246,9 @@ async def list_packages(
             id=int(i["id"]),
             name=i.get("name") or f"Package {i['id']}",
             filename=i.get("filename") or i.get("file_name"),
-            category=(i.get("category") or {}).get("name") if isinstance(i.get("category"), dict) else i.get("category"),
+            category=(i.get("category") or {}).get("name")
+            if isinstance(i.get("category"), dict)
+            else i.get("category"),
         )
         for i in raw_items
         if i.get("id")

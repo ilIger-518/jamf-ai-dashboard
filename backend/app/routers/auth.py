@@ -184,8 +184,14 @@ async def me(current_user: CurrentUser) -> UserResponse:
     return _user_response(current_user)
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT, summary="Change current user's password")
-async def change_password(body: ChangePasswordRequest, current_user: CurrentUser, db: DBSession) -> None:
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Change current user's password",
+)
+async def change_password(
+    body: ChangePasswordRequest, current_user: CurrentUser, db: DBSession
+) -> None:
     if not AuthService.verify_password(body.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -232,7 +238,9 @@ async def microsoft_sso_start() -> RedirectResponse:
         "scope": "openid profile email",
         "state": state,
     }
-    return RedirectResponse(url=f"{auth_url}?{urlencode(params)}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(
+        url=f"{auth_url}?{urlencode(params)}", status_code=status.HTTP_302_FOUND
+    )
 
 
 @router.get("/sso/microsoft/callback", summary="Microsoft SSO callback")

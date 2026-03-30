@@ -13,11 +13,12 @@ from app.database import Base
 class ScrapeJobLog(Base):
     __tablename__ = "scrape_job_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("scrape_jobs.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("scrape_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     level: Mapped[str] = mapped_column(String(16), default="info", nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)

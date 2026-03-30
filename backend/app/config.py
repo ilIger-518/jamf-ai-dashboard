@@ -93,7 +93,11 @@ class Settings(BaseSettings):
 
     @property
     def embedding_model_name_effective(self) -> str:
-        return self.custom_embedding_model if self.embedding_provider == "custom" else self.embedding_model_name
+        return (
+            self.custom_embedding_model
+            if self.embedding_provider == "custom"
+            else self.embedding_model_name
+        )
 
 
 @lru_cache

@@ -347,13 +347,17 @@ async def _llm_is_relevant(text_snippet: str, topic_filter: str) -> bool:
     )
     try:
         answer = (
-            await complete_chat(
-                [{"role": "user", "content": prompt}],
-                temperature=0.0,
-                timeout=20.0,
-                use_case="scrape",
+            (
+                await complete_chat(
+                    [{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    timeout=20.0,
+                    use_case="scrape",
+                )
             )
-        ).strip().upper()
+            .strip()
+            .upper()
+        )
         return answer.startswith("Y")
     except Exception as exc:
         logger.warning("Topic filter LLM call failed (%s), including page by default", exc)
@@ -485,7 +489,9 @@ async def run_scrape_job(job_id: str) -> None:
             logger.warning("Sitemap seeding timed out for %s; falling back to start URL", start_url)
             sitemap_urls = []
             sitemap_timed_out = True
-            await _append_job_log(job_id, "Sitemap seeding timed out; falling back to start URL", "warning")
+            await _append_job_log(
+                job_id, "Sitemap seeding timed out; falling back to start URL", "warning"
+            )
 
         if sitemap_urls:
             # For multi-language sites prefer English pages where locale is visible
@@ -548,7 +554,9 @@ async def run_scrape_job(job_id: str) -> None:
                             ctrl.bytes_scraped = bytes_scraped
                             await session.commit()
                             logger.info("Scrape job %s cancelled while paused", job_id)
-                            await _append_job_log(job_id, "Job cancelled by user while paused", "warning")
+                            await _append_job_log(
+                                job_id, "Job cancelled by user while paused", "warning"
+                            )
                             return
 
                     cpu_cap_mode = ctrl.cpu_cap_mode if ctrl else "total"
@@ -570,7 +578,9 @@ async def run_scrape_job(job_id: str) -> None:
                     if candidate_url in visited:
                         continue
                     if SKIP_PATTERNS.search(urlparse(candidate_url).path):
-                        await _append_job_log(job_id, f"Skipping non-content URL by extension: {candidate_url}")
+                        await _append_job_log(
+                            job_id, f"Skipping non-content URL by extension: {candidate_url}"
+                        )
                         continue
                     visited.add(candidate_url)
                     batch_urls.append(candidate_url)
@@ -603,7 +613,11 @@ async def run_scrape_job(job_id: str) -> None:
                         continue
 
                     if fetched.get("status") != "ok":
-                        await _append_job_log(job_id, f"Skipped {url} ({fetched.get('reason', 'unknown reason')})", "warning")
+                        await _append_job_log(
+                            job_id,
+                            f"Skipped {url} ({fetched.get('reason', 'unknown reason')})",
+                            "warning",
+                        )
                         continue
 
                     html = str(fetched["html"])
@@ -620,7 +634,9 @@ async def run_scrape_job(job_id: str) -> None:
                         text = text[:_MAX_EMBED_TEXT_CHARS]
 
                     doc_size = len(text.encode("utf-8", errors="replace"))
-                    content_hash = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+                    content_hash = hashlib.sha256(
+                        text.encode("utf-8", errors="replace")
+                    ).hexdigest()
 
                     existing: KnowledgeDocument | None = None
                     async with AsyncSessionLocal() as session:

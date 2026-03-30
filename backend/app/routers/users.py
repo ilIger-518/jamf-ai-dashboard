@@ -101,7 +101,9 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     if body.email is not None:
-        duplicate = await db.execute(select(User).where(User.email == body.email, User.id != user_id))
+        duplicate = await db.execute(
+            select(User).where(User.email == body.email, User.id != user_id)
+        )
         if duplicate.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Email already registered")
         user.email = body.email
@@ -151,7 +153,9 @@ async def list_roles(
 
 
 @router.get("/permissions", response_model=PermissionsCatalogResponse)
-async def list_permissions(_: Annotated[User, Depends(get_current_user)]) -> PermissionsCatalogResponse:
+async def list_permissions(
+    _: Annotated[User, Depends(get_current_user)],
+) -> PermissionsCatalogResponse:
     return PermissionsCatalogResponse(items=PERMISSIONS_CATALOG)
 
 
@@ -164,7 +168,9 @@ async def create_role(
     existing = await db.execute(select(Role).where(Role.name == body.name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Role name already exists")
-    role = Role(name=body.name, description=body.description, permissions=body.permissions, is_system=False)
+    role = Role(
+        name=body.name, description=body.description, permissions=body.permissions, is_system=False
+    )
     db.add(role)
     await db.flush()
     await db.refresh(role)

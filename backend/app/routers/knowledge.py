@@ -94,7 +94,9 @@ class ScrapeJobResponse(BaseModel):
             seed_mode=job.seed_mode,
             seed_urls=job.seed_urls,
             sitemap_timed_out=job.sitemap_timed_out,
-            continued_from_job_id=str(job.continued_from_job_id) if job.continued_from_job_id else None,
+            continued_from_job_id=str(job.continued_from_job_id)
+            if job.continued_from_job_id
+            else None,
             last_url=job.last_url,
             created_at=job.created_at.isoformat(),
             started_at=job.started_at.isoformat() if job.started_at else None,
@@ -309,8 +311,10 @@ async def _get_default_knowledge_base(session) -> KnowledgeBase:
         return kb
 
     first = (
-        await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.created_at.asc()))
-    ).scalars().first()
+        (await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.created_at.asc())))
+        .scalars()
+        .first()
+    )
     if first:
         first.is_default = True
         await session.commit()
@@ -342,7 +346,9 @@ async def list_knowledge_bases(_: CurrentUser) -> list[KnowledgeBaseResponse]:
     async with AsyncSessionLocal() as session:
         default_kb = await _get_default_knowledge_base(session)
         result = await session.execute(
-            select(KnowledgeBase).order_by(KnowledgeBase.is_default.desc(), KnowledgeBase.name.asc())
+            select(KnowledgeBase).order_by(
+                KnowledgeBase.is_default.desc(), KnowledgeBase.name.asc()
+            )
         )
         bases = result.scalars().all()
         if not bases:
@@ -353,8 +359,7 @@ async def list_knowledge_bases(_: CurrentUser) -> list[KnowledgeBaseResponse]:
                 KnowledgeDocument.knowledge_base_id,
                 func.count(KnowledgeDocument.id),
                 func.coalesce(func.sum(KnowledgeDocument.size_bytes), 0),
-            )
-            .group_by(KnowledgeDocument.knowledge_base_id)
+            ).group_by(KnowledgeDocument.knowledge_base_id)
         )
         doc_stats = {
             kb_id: {"source_count": int(count), "total_size_bytes": int(total_size)}
@@ -396,7 +401,9 @@ async def create_knowledge_base(
             if probe and probe[0]:
                 embedding_dimension = len(probe[0])
         except Exception as exc:
-            logger.warning("Could not auto-detect embedding dimension for knowledge base create: %s", exc)
+            logger.warning(
+                "Could not auto-detect embedding dimension for knowledge base create: %s", exc
+            )
 
     async with AsyncSessionLocal() as session:
         name_exists = (
@@ -416,10 +423,14 @@ async def create_knowledge_base(
         if body.is_default:
             await session.execute(select(KnowledgeBase))
             existing_default = (
-                await session.execute(
-                    select(KnowledgeBase).where(KnowledgeBase.is_default.is_(True))
+                (
+                    await session.execute(
+                        select(KnowledgeBase).where(KnowledgeBase.is_default.is_(True))
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for kb in existing_default:
                 kb.is_default = False
 
@@ -456,34 +467,48 @@ async def delete_knowledge_base(knowledge_base_id: str, _: ManageKnowledgeUser) 
             raise HTTPException(status_code=404, detail="Knowledge base not found")
 
         running_jobs = (
-            await session.execute(
-                select(ScrapeJob).where(
-                    ScrapeJob.knowledge_base_id == kb_id,
-                    ScrapeJob.status.in_(["pending", "running"]),
+            (
+                await session.execute(
+                    select(ScrapeJob).where(
+                        ScrapeJob.knowledge_base_id == kb_id,
+                        ScrapeJob.status.in_(["pending", "running"]),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if running_jobs:
             raise HTTPException(
                 status_code=409,
                 detail="Cannot delete knowledge base while scrape jobs are running",
             )
 
-        all_bases = (await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.created_at.asc()))).scalars().all()
+        all_bases = (
+            (await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.created_at.asc())))
+            .scalars()
+            .all()
+        )
         if len(all_bases) <= 1:
-            raise HTTPException(status_code=409, detail="Cannot delete the last remaining knowledge base")
+            raise HTTPException(
+                status_code=409, detail="Cannot delete the last remaining knowledge base"
+            )
 
         docs = (
-            await session.execute(
-                select(KnowledgeDocument).where(KnowledgeDocument.knowledge_base_id == kb_id)
+            (
+                await session.execute(
+                    select(KnowledgeDocument).where(KnowledgeDocument.knowledge_base_id == kb_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         jobs = (
-            await session.execute(
-                select(ScrapeJob).where(ScrapeJob.knowledge_base_id == kb_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(ScrapeJob).where(ScrapeJob.knowledge_base_id == kb_id)))
+            .scalars()
+            .all()
+        )
 
         if kb.is_default:
             replacement = next((base for base in all_bases if base.id != kb.id), None)
@@ -510,18 +535,26 @@ async def download_all_knowledge_bases(_: CurrentUser) -> Response:
     """Download all knowledge bases (metadata + source docs + scrape jobs) as one JSON file."""
     async with AsyncSessionLocal() as session:
         knowledge_bases = (
-            await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.name.asc()))
-        ).scalars().all()
+            (await session.execute(select(KnowledgeBase).order_by(KnowledgeBase.name.asc())))
+            .scalars()
+            .all()
+        )
 
         docs = (
-            await session.execute(
-                select(KnowledgeDocument).order_by(KnowledgeDocument.ingested_at.desc())
+            (
+                await session.execute(
+                    select(KnowledgeDocument).order_by(KnowledgeDocument.ingested_at.desc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         jobs = (
-            await session.execute(select(ScrapeJob).order_by(ScrapeJob.created_at.desc()))
-        ).scalars().all()
+            (await session.execute(select(ScrapeJob).order_by(ScrapeJob.created_at.desc())))
+            .scalars()
+            .all()
+        )
 
     docs_by_kb: dict[uuid.UUID | None, list[KnowledgeDocument]] = {}
     for doc in docs:
@@ -603,20 +636,28 @@ async def download_knowledge_base(knowledge_base_id: str, _: CurrentUser) -> Res
             raise HTTPException(status_code=404, detail="Knowledge base not found")
 
         docs = (
-            await session.execute(
-                select(KnowledgeDocument)
-                .where(KnowledgeDocument.knowledge_base_id == kb_id)
-                .order_by(KnowledgeDocument.ingested_at.desc())
+            (
+                await session.execute(
+                    select(KnowledgeDocument)
+                    .where(KnowledgeDocument.knowledge_base_id == kb_id)
+                    .order_by(KnowledgeDocument.ingested_at.desc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         jobs = (
-            await session.execute(
-                select(ScrapeJob)
-                .where(ScrapeJob.knowledge_base_id == kb_id)
-                .order_by(ScrapeJob.created_at.desc())
+            (
+                await session.execute(
+                    select(ScrapeJob)
+                    .where(ScrapeJob.knowledge_base_id == kb_id)
+                    .order_by(ScrapeJob.created_at.desc())
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
     payload = {
         "exported_at": datetime.now(UTC).isoformat(),
@@ -753,7 +794,9 @@ async def list_scrape_jobs(_: CurrentUser) -> list[ScrapeJobResponse]:
         jobs = result.scalars().all()
         kb_result = await session.execute(select(KnowledgeBase))
         kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
-    return [ScrapeJobResponse.from_orm(j, knowledge_base=kb_map.get(j.knowledge_base_id)) for j in jobs]
+    return [
+        ScrapeJobResponse.from_orm(j, knowledge_base=kb_map.get(j.knowledge_base_id)) for j in jobs
+    ]
 
 
 @router.get("/scrape/system")
@@ -771,7 +814,11 @@ async def get_scrape_job(job_id: str, _: CurrentUser) -> ScrapeJobResponse:
     """Get status of a single scrape job."""
     async with AsyncSessionLocal() as session:
         job = await session.get(ScrapeJob, uuid.UUID(job_id))
-        kb = await session.get(KnowledgeBase, job.knowledge_base_id) if job and job.knowledge_base_id else None
+        kb = (
+            await session.get(KnowledgeBase, job.knowledge_base_id)
+            if job and job.knowledge_base_id
+            else None
+        )
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return ScrapeJobResponse.from_orm(job, knowledge_base=kb)
@@ -889,7 +936,9 @@ async def get_scrape_job_runtime(job_id: str, _: CurrentUser) -> ScrapeRuntimeRe
 
 
 @router.patch("/scrape/{job_id}", response_model=ScrapeJobResponse)
-async def control_scrape_job(job_id: str, body: ScrapeControlRequest, _: ManageKnowledgeUser) -> ScrapeJobResponse:
+async def control_scrape_job(
+    job_id: str, body: ScrapeControlRequest, _: ManageKnowledgeUser
+) -> ScrapeJobResponse:
     """Control a scrape job: pause/resume/cancel and update CPU cap settings."""
     if body.action not in {"pause", "resume", "cancel"}:
         raise HTTPException(status_code=400, detail="Invalid action")
@@ -899,12 +948,18 @@ async def control_scrape_job(job_id: str, body: ScrapeControlRequest, _: ManageK
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        if job.status not in {"pending", "running"} and body.action in {"pause", "resume", "cancel"}:
+        if job.status not in {"pending", "running"} and body.action in {
+            "pause",
+            "resume",
+            "cancel",
+        }:
             raise HTTPException(status_code=409, detail="Job is no longer running")
 
         if body.cpu_cap_mode is not None:
             if body.cpu_cap_mode not in {"total", "core"}:
-                raise HTTPException(status_code=400, detail="cpu_cap_mode must be 'total' or 'core'")
+                raise HTTPException(
+                    status_code=400, detail="cpu_cap_mode must be 'total' or 'core'"
+                )
             job.cpu_cap_mode = body.cpu_cap_mode
 
         if body.cpu_cap_percent is not None:
@@ -926,7 +981,11 @@ async def control_scrape_job(job_id: str, body: ScrapeControlRequest, _: ManageK
 
         await session.commit()
         await session.refresh(job)
-        kb = await session.get(KnowledgeBase, job.knowledge_base_id) if job.knowledge_base_id else None
+        kb = (
+            await session.get(KnowledgeBase, job.knowledge_base_id)
+            if job.knowledge_base_id
+            else None
+        )
         return ScrapeJobResponse.from_orm(job, knowledge_base=kb)
 
 
@@ -973,7 +1032,9 @@ async def list_sources(
                 | func.lower(func.coalesce(KnowledgeBase.name, "")).like(token)
             )
 
-        total = (await session.execute(select(func.count()).select_from(query.subquery()))).scalar_one()
+        total = (
+            await session.execute(select(func.count()).select_from(query.subquery()))
+        ).scalar_one()
         offset = (page - 1) * page_size
         result = await session.execute(
             query.order_by(KnowledgeDocument.ingested_at.desc()).offset(offset).limit(page_size)
@@ -983,12 +1044,16 @@ async def list_sources(
         kb_ids = {doc.knowledge_base_id for doc in docs if doc.knowledge_base_id}
         kb_map: dict[uuid.UUID, KnowledgeBase] = {}
         if kb_ids:
-            kb_result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.id.in_(kb_ids)))
+            kb_result = await session.execute(
+                select(KnowledgeBase).where(KnowledgeBase.id.in_(kb_ids))
+            )
             kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
 
     total_pages = (total + page_size - 1) // page_size if total > 0 else 0
     return SourceListResponse(
-        items=[SourceResponse.from_orm(d, knowledge_base=kb_map.get(d.knowledge_base_id)) for d in docs],
+        items=[
+            SourceResponse.from_orm(d, knowledge_base=kb_map.get(d.knowledge_base_id)) for d in docs
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -1007,13 +1072,17 @@ async def cleanup_duplicate_sources(
     """Delete duplicate source rows, keeping the newest row per knowledge-base/source key."""
     async with AsyncSessionLocal() as session:
         docs = (
-            await session.execute(
-                select(KnowledgeDocument).order_by(
-                    KnowledgeDocument.ingested_at.desc(),
-                    KnowledgeDocument.updated_at.desc(),
+            (
+                await session.execute(
+                    select(KnowledgeDocument).order_by(
+                        KnowledgeDocument.ingested_at.desc(),
+                        KnowledgeDocument.updated_at.desc(),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         kb_result = await session.execute(select(KnowledgeBase))
         kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
@@ -1053,13 +1122,18 @@ async def cleanup_duplicate_sources(
                     SourceCleanupDuplicateGroup(
                         key=f"{group[0].knowledge_base_id or 'none'}:{_canonical_source_key(group[0])}",
                         keep=_to_preview_record(group[0]),
-                        duplicates=[_to_preview_record(item) for item in group[1 : 1 + preview_duplicates_per_group]],
+                        duplicates=[
+                            _to_preview_record(item)
+                            for item in group[1 : 1 + preview_duplicates_per_group]
+                        ],
                         duplicate_count=len(group) - 1,
                     )
                 )
 
         if duplicate_ids and not dry_run:
-            await session.execute(delete(KnowledgeDocument).where(KnowledgeDocument.id.in_(duplicate_ids)))
+            await session.execute(
+                delete(KnowledgeDocument).where(KnowledgeDocument.id.in_(duplicate_ids))
+            )
             await session.commit()
 
     return SourceCleanupResponse(
@@ -1096,7 +1170,11 @@ async def get_source_preview(source_id: str, _: CurrentUser) -> SourcePreviewRes
         doc = await session.get(KnowledgeDocument, uuid.UUID(source_id))
         if not doc:
             raise HTTPException(status_code=404, detail="Source not found")
-        kb = await session.get(KnowledgeBase, doc.knowledge_base_id) if doc.knowledge_base_id else None
+        kb = (
+            await session.get(KnowledgeBase, doc.knowledge_base_id)
+            if doc.knowledge_base_id
+            else None
+        )
 
     chunks = await get_source_chunks(
         doc.source,

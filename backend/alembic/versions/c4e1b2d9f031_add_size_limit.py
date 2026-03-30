@@ -34,7 +34,8 @@ def upgrade() -> None:
         op.add_column("scrape_jobs", sa.Column("max_size_mb", sa.Integer(), nullable=True))
     if "bytes_scraped" not in columns:
         op.add_column(
-            "scrape_jobs", sa.Column("bytes_scraped", sa.Integer(), nullable=False, server_default="0")
+            "scrape_jobs",
+            sa.Column("bytes_scraped", sa.Integer(), nullable=False, server_default="0"),
         )
 
 

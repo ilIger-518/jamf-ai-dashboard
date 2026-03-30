@@ -77,7 +77,9 @@ async def ingest_document(
         documents=chunks,
         metadatas=metadatas,
     )
-    logger.info("Ingested %d chunks from %s into collection %s", len(chunks), source_url, collection_name)
+    logger.info(
+        "Ingested %d chunks from %s into collection %s", len(chunks), source_url, collection_name
+    )
     return len(chunks), ids
 
 
@@ -174,7 +176,9 @@ async def get_source_chunks(
     try:
         client = await _get_chroma_client()
         collection = await client.get_or_create_collection(collection_name)
-        results = await collection.get(where={"source": source_url}, include=["documents", "metadatas"])
+        results = await collection.get(
+            where={"source": source_url}, include=["documents", "metadatas"]
+        )
 
         documents = results.get("documents") or []
         metadatas = results.get("metadatas") or []

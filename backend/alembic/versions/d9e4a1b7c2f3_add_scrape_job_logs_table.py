@@ -31,7 +31,12 @@ def upgrade() -> None:
             sa.Column("job_id", postgresql.UUID(as_uuid=True), nullable=False),
             sa.Column("level", sa.String(length=16), nullable=False, server_default="info"),
             sa.Column("message", sa.Text(), nullable=False),
-            sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
             sa.ForeignKeyConstraint(["job_id"], ["scrape_jobs.id"], ondelete="CASCADE"),
             sa.PrimaryKeyConstraint("id"),
         )
@@ -42,9 +47,13 @@ def upgrade() -> None:
         else set()
     )
     if op.f("ix_scrape_job_logs_job_id") not in existing_indexes:
-        op.create_index(op.f("ix_scrape_job_logs_job_id"), "scrape_job_logs", ["job_id"], unique=False)
+        op.create_index(
+            op.f("ix_scrape_job_logs_job_id"), "scrape_job_logs", ["job_id"], unique=False
+        )
     if op.f("ix_scrape_job_logs_created_at") not in existing_indexes:
-        op.create_index(op.f("ix_scrape_job_logs_created_at"), "scrape_job_logs", ["created_at"], unique=False)
+        op.create_index(
+            op.f("ix_scrape_job_logs_created_at"), "scrape_job_logs", ["created_at"], unique=False
+        )
 
 
 def downgrade() -> None:
