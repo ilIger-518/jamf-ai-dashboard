@@ -186,6 +186,15 @@ Behavior notes:
 docker compose build backend frontend
 docker compose up -d backend frontend
 
+# Safe Docker cleanup (keeps volumes)
+./scripts/docker-cleanup-safe.sh
+
+# Aggressive Docker cleanup (still keeps volumes by default)
+./scripts/docker-cleanup-aggressive.sh
+
+# Aggressive cleanup including unused volumes
+./scripts/docker-cleanup-aggressive.sh --prune-volumes
+
 # Follow backend logs
 docker compose logs -f backend
 
