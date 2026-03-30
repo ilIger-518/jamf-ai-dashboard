@@ -14,6 +14,7 @@ Features:
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 _MAX_SUB_SITEMAPS = 40
 _MAX_SEED_URLS = 3000
 _MAX_QUEUE_URLS = 20000
+_MAX_EMBED_TEXT_CHARS = 250_000
 _SITEMAP_SEED_TIMEOUT_SECONDS = 90
 _SUB_SITEMAP_CONCURRENCY = 8
 
@@ -574,6 +576,28 @@ async def run_scrape_job(job_id: str) -> None:
                     await _append_job_log(job_id, f"Skipped low-content page: {url} ({len(text)} chars)")
                     continue
 
+                if len(text) > _MAX_EMBED_TEXT_CHARS:
+                    await _append_job_log(
+                        job_id,
+                        f"Truncated very large page before embedding: {url} ({len(text)} chars)",
+                        "warning",
+                    )
+                    text = text[:_MAX_EMBED_TEXT_CHARS]
+
+                doc_size = len(text.encode("utf-8", errors="replace"))
+                content_hash = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
+                existing: KnowledgeDocument | None = None
+                async with AsyncSessionLocal() as session:
+                    existing = (
+                        await session.execute(
+                            select(KnowledgeDocument).where(
+                                KnowledgeDocument.source == url,
+                                KnowledgeDocument.knowledge_base_id == knowledge_base_id,
+                            )
+                        )
+                    ).scalar_one_or_none()
+
                 # Topic filter check
                 if topic_filter:
                     relevant = await _llm_is_relevant(text, topic_filter)
@@ -588,22 +612,25 @@ async def run_scrape_job(job_id: str) -> None:
 
                 title = zoomin_title or _page_title(html, url)
                 embedding_threads = _cpu_cap_to_ollama_threads(cpu_cap_mode, cpu_cap_percent)
-                await _append_job_log(
-                    job_id,
-                    (
-                        f"Embedding with thread cap {embedding_threads} "
-                        f"(mode={cpu_cap_mode}, cap={cpu_cap_percent}%)"
-                    ),
-                )
-
-                # Embed + store in ChromaDB
-                chunk_count, _ = await ingest_document(
-                    source_url=url,
-                    title=title,
-                    text=text,
-                    num_thread=embedding_threads,
-                    collection_name=knowledge_collection_name,
-                )
+                if existing and existing.file_hash == content_hash:
+                    chunk_count = existing.chunk_count
+                    await _append_job_log(job_id, f"Skipped re-embedding unchanged page: {url}")
+                else:
+                    await _append_job_log(
+                        job_id,
+                        (
+                            f"Embedding with thread cap {embedding_threads} "
+                            f"(mode={cpu_cap_mode}, cap={cpu_cap_percent}%)"
+                        ),
+                    )
+                    # Embed + store in ChromaDB
+                    chunk_count, _ = await ingest_document(
+                        source_url=url,
+                        title=title,
+                        text=text,
+                        num_thread=embedding_threads,
+                        collection_name=knowledge_collection_name,
+                    )
 
                 bytes_scraped += len(html.encode("utf-8", errors="replace"))
 
@@ -617,11 +644,11 @@ async def run_scrape_job(job_id: str) -> None:
                             )
                         )
                     ).scalar_one_or_none()
-                    doc_size = len(text.encode("utf-8", errors="replace"))
                     if existing:
                         existing.chunk_count = chunk_count
                         existing.title = title
                         existing.size_bytes = doc_size
+                        existing.file_hash = content_hash
                     else:
                         session.add(
                             KnowledgeDocument(
@@ -630,6 +657,7 @@ async def run_scrape_job(job_id: str) -> None:
                                 doc_type="url",
                                 chunk_count=chunk_count,
                                 size_bytes=doc_size,
+                                file_hash=content_hash,
                                 collection_name=knowledge_collection_name,
                                 knowledge_base_id=knowledge_base_id,
                             )
