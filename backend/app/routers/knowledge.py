@@ -6,6 +6,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import parse_qsl, urlencode, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import Response
@@ -144,6 +145,13 @@ class SourcePreviewResponse(BaseModel):
     preview_text: str
 
 
+class SourceCleanupResponse(BaseModel):
+    scanned_sources: int
+    unique_groups: int
+    duplicate_groups: int
+    duplicates_deleted: int
+
+
 class KnowledgeBaseCreateRequest(BaseModel):
     name: str
     description: str | None = None
@@ -234,6 +242,32 @@ def _slugify_collection(name: str) -> str:
 def _slugify_filename(name: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", name.strip()).strip("-")
     return slug[:80] or "knowledge-base"
+
+
+def _canonical_source_key(doc: KnowledgeDocument) -> str:
+    source = (doc.source or "").strip()
+    if not source:
+        return ""
+
+    if doc.doc_type == "url":
+        parsed = urlparse(source)
+        query_pairs = parse_qsl(parsed.query, keep_blank_values=True)
+        cleaned_query = urlencode(
+            sorted(
+                [
+                    (k, v)
+                    for (k, v) in query_pairs
+                    if not k.lower().startswith("utm_")
+                    and k.lower() not in {"fbclid", "gclid", "msclkid", "mc_cid", "mc_eid"}
+                ]
+            )
+        )
+        return parsed._replace(fragment="", query=cleaned_query).geturl().rstrip("/").lower()
+
+    if doc.file_hash:
+        return f"hash:{doc.file_hash.lower()}"
+
+    return source.lower()
 
 
 async def _get_default_knowledge_base(session) -> KnowledgeBase:
@@ -899,6 +933,45 @@ async def list_sources(_: CurrentUser, knowledge_base_id: str | None = None) -> 
         kb_result = await session.execute(select(KnowledgeBase))
         kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
     return [SourceResponse.from_orm(d, knowledge_base=kb_map.get(d.knowledge_base_id)) for d in docs]
+
+
+@router.post("/sources/cleanup-duplicates", response_model=SourceCleanupResponse)
+async def cleanup_duplicate_sources(_: ManageKnowledgeUser) -> SourceCleanupResponse:
+    """Delete duplicate source rows, keeping the newest row per knowledge-base/source key."""
+    async with AsyncSessionLocal() as session:
+        docs = (
+            await session.execute(
+                select(KnowledgeDocument).order_by(
+                    KnowledgeDocument.ingested_at.desc(),
+                    KnowledgeDocument.updated_at.desc(),
+                )
+            )
+        ).scalars().all()
+
+        grouped: dict[str, list[KnowledgeDocument]] = {}
+        for doc in docs:
+            scope = str(doc.knowledge_base_id or "none")
+            key = f"{scope}:{_canonical_source_key(doc)}"
+            grouped.setdefault(key, []).append(doc)
+
+        duplicate_groups = 0
+        duplicate_ids: list[uuid.UUID] = []
+        for group in grouped.values():
+            if len(group) <= 1:
+                continue
+            duplicate_groups += 1
+            duplicate_ids.extend([item.id for item in group[1:]])
+
+        if duplicate_ids:
+            await session.execute(delete(KnowledgeDocument).where(KnowledgeDocument.id.in_(duplicate_ids)))
+            await session.commit()
+
+    return SourceCleanupResponse(
+        scanned_sources=len(docs),
+        unique_groups=len(grouped),
+        duplicate_groups=duplicate_groups,
+        duplicates_deleted=len(duplicate_ids),
+    )
 
 
 @router.delete("/sources/{source_id}", status_code=204)

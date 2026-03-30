@@ -31,6 +31,13 @@ interface SourcePreview {
   preview_text: string;
 }
 
+interface SourceCleanupResult {
+  scanned_sources: number;
+  unique_groups: number;
+  duplicate_groups: number;
+  duplicates_deleted: number;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "-";
   if (bytes < 1024) return `${bytes} B`;
@@ -99,6 +106,22 @@ export default function KnowledgeSourcesPage() {
     onError: () => toast.error("Failed to delete source"),
   });
 
+  const cleanupDuplicates = useMutation({
+    mutationFn: () => api.post<SourceCleanupResult>("/knowledge/sources/cleanup-duplicates").then((r) => r.data),
+    onSuccess: (result) => {
+      if (result.duplicates_deleted > 0) {
+        toast.success(
+          `Cleanup complete: removed ${result.duplicates_deleted} duplicates from ${result.duplicate_groups} groups.`,
+        );
+      } else {
+        toast.success("Cleanup complete: no duplicate sources found.");
+      }
+      qc.invalidateQueries({ queryKey: ["knowledge-sources"] });
+      qc.invalidateQueries({ queryKey: ["knowledge-bases"] });
+    },
+    onError: () => toast.error("Failed to cleanup duplicate sources"),
+  });
+
   const filteredSources = useMemo(() => {
     const q = sourceSearch.trim().toLowerCase();
     if (!q) return sources;
@@ -127,6 +150,25 @@ export default function KnowledgeSourcesPage() {
           <BookOpen className="h-4 w-4" />
           Back to Knowledge
         </Link>
+      </div>
+
+      <div className="flex justify-end">
+        <button
+          onClick={() => {
+            if (confirm("Scan all stored sources and delete duplicate entries?")) {
+              cleanupDuplicates.mutate();
+            }
+          }}
+          disabled={cleanupDuplicates.isPending}
+          className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+        >
+          {cleanupDuplicates.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          Cleanup Duplicates
+        </button>
       </div>
 
       {previewSource && <SourcePreviewModal source={previewSource} onClose={() => setPreviewSource(null)} />}
