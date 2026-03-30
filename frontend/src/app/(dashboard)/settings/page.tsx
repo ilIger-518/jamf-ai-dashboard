@@ -2276,7 +2276,15 @@ export default function SettingsPage() {
                     <XCircle className="h-4 w-4 shrink-0 text-gray-400" />
                   )}
                   <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{s.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{s.name}</p>
+                      {syncStatusByServerId.get(s.id)?.last_sync_result?.status === "error" && (
+                        <span className="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                          <AlertTriangle className="h-3 w-3" />
+                          Sync failed
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{s.url}</p>
                     {s.last_sync_error && (
                       <p className="mt-0.5 text-xs text-red-500 dark:text-red-400">
@@ -2291,6 +2299,13 @@ export default function SettingsPage() {
                     {(() => {
                       const statusRow = syncStatusByServerId.get(s.id);
                       const result = statusRow?.last_sync_result;
+                      if (result?.status === "error" && result.error) {
+                        return (
+                          <p className="mt-0.5 text-xs text-red-500 dark:text-red-400">
+                            Last result: {result.error}
+                          </p>
+                        );
+                      }
                       if (!result || result.status !== "success") return null;
 
                       const parts: string[] = [];
