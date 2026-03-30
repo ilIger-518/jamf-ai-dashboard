@@ -17,7 +17,7 @@ import logging
 from datetime import UTC, datetime
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.cache import get_redis
 from app.database import AsyncSessionLocal
@@ -111,6 +111,15 @@ async def _upsert_device(db_session, server_id, jamf_id: int, fields: dict) -> N
     device.synced_at = datetime.now(UTC)
 
 
+async def _purge_missing_by_jamf_id(db_session, model, server_id, seen_ids: set[int]) -> int:
+    """Delete local rows for a server when their Jamf IDs are no longer present upstream."""
+    query = delete(model).where(model.server_id == server_id)
+    if seen_ids:
+        query = query.where(model.jamf_id.not_in(seen_ids))
+    result = await db_session.execute(query)
+    return int(result.rowcount or 0)
+
+
 # ---------------------------------------------------------------------------
 # Strategy 1: /api/v2/computers  (Jamf Pro 10.49+)
 # Response has nested dicts: general{}, hardware{}, location{}
@@ -123,6 +132,7 @@ async def _sync_computers_v2(
     base_url = server.url
     headers = {"Authorization": f"Bearer {token}"}
     page, total_upserted = 0, 0
+    seen_ids: set[int] = set()
 
     while True:
         resp = await client.get(
@@ -147,6 +157,7 @@ async def _sync_computers_v2(
             jamf_id = int(comp.get("id", 0))
             if not jamf_id:
                 continue
+            seen_ids.add(jamf_id)
 
             general = comp.get("general") or {}
             hardware = comp.get("hardware") or {}
@@ -180,7 +191,9 @@ async def _sync_computers_v2(
             break
         page += 1
 
-    logger.info("v2 sync: %d computers from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
+
+    logger.info("v2 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
@@ -196,6 +209,7 @@ async def _sync_computers_v1(
     base_url = server.url
     headers = {"Authorization": f"Bearer {token}"}
     page, total_upserted = 0, 0
+    seen_ids: set[int] = set()
 
     while True:
         resp = await client.get(
@@ -219,6 +233,7 @@ async def _sync_computers_v1(
             jamf_id = int(comp.get("id", 0))
             if not jamf_id:
                 continue
+            seen_ids.add(jamf_id)
 
             await _upsert_device(db_session, server.id, jamf_id, {
                 "name": comp.get("name") or f"Computer {jamf_id}",
@@ -246,7 +261,9 @@ async def _sync_computers_v1(
             break
         page += 1
 
-    logger.info("v1 sync: %d computers from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
+
+    logger.info("v1 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
@@ -293,6 +310,7 @@ async def _sync_computers_classic(
 
     stubs = resp.json().get("computers", [])
     valid_ids = [int(c["id"]) for c in stubs if c.get("id")]
+    seen_ids = set(valid_ids)
 
     # Fetch full detail concurrently (max 10 in-flight)
     semaphore = asyncio.Semaphore(10)
@@ -334,7 +352,8 @@ async def _sync_computers_classic(
         total_upserted += 1
 
     await db_session.flush()
-    logger.info("classic sync: %d computers from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
+    logger.info("classic sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
@@ -456,7 +475,11 @@ async def _sync_policies_v1(
 
     if not all_stubs:
         logger.info("No policies found via /api/v1/policies on %s", base_url)
+        deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, set())
+        logger.info("v1 policy sync: 0 policies from %s (deleted stale: %d)", base_url, deleted)
         return 0
+
+    seen_ids = {int(s["id"]) for s in all_stubs if s.get("id")}
 
     # Fetch full detail for each policy concurrently (max 10 in-flight)
     semaphore = asyncio.Semaphore(10)
@@ -490,7 +513,8 @@ async def _sync_policies_v1(
         total_upserted += 1
 
     await db_session.flush()
-    logger.info("v1 policy sync: %d policies from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
+    logger.info("v1 policy sync: %d policies from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
@@ -541,9 +565,12 @@ async def _sync_policies_classic(
 
     if not policy_stubs:
         logger.info("No policies found via Classic API on %s", base_url)
+        deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, set())
+        logger.info("classic policy sync: 0 policies from %s (deleted stale: %d)", base_url, deleted)
         return 0
 
     valid_stubs = [s for s in policy_stubs if s.get("id")]
+    seen_ids = {int(s["id"]) for s in valid_stubs}
     semaphore = asyncio.Semaphore(10)
     details = await asyncio.gather(
         *[
@@ -584,7 +611,8 @@ async def _sync_policies_classic(
         total_upserted += 1
 
     await db_session.flush()
-    logger.info("classic policy sync: %d policies from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
+    logger.info("classic policy sync: %d policies from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
@@ -667,7 +695,11 @@ async def _sync_smart_groups(
     smart_stubs = [g for g in all_groups if g.get("is_smart") or g.get("is_smart_group")]
     if not smart_stubs:
         logger.info("No smart groups found on %s", base_url)
+        deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, set())
+        logger.info("smart group sync: 0 groups from %s (deleted stale: %d)", base_url, deleted)
         return 0
+
+    seen_ids = {int(g["id"]) for g in smart_stubs if g.get("id")}
 
     semaphore = asyncio.Semaphore(10)
     details = await asyncio.gather(
@@ -710,7 +742,8 @@ async def _sync_smart_groups(
         total_upserted += 1
 
     await db_session.flush()
-    logger.info("smart group sync: %d groups from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, seen_ids)
+    logger.info("smart group sync: %d groups from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
@@ -780,6 +813,8 @@ async def _sync_patches_modern(
             all_items.extend(r.json().get("results") or [])
             page += 1
 
+    seen_ids = {int(item.get("id", 0) or 0) for item in all_items if isinstance(item, dict) and item.get("id")}
+
     for item in all_items:
         if not isinstance(item, dict):
             continue
@@ -798,7 +833,8 @@ async def _sync_patches_modern(
         total_upserted += 1
 
     await db_session.flush()
-    logger.info("modern patch sync: %d titles from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
+    logger.info("modern patch sync: %d titles from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
@@ -822,6 +858,8 @@ async def _sync_patches_classic(
     else:
         stubs = titles_val
 
+    seen_ids = {int(stub.get("id", 0)) for stub in stubs if stub.get("id")}
+
     total_upserted = 0
     for stub in stubs:
         jamf_id = int(stub.get("id", 0))
@@ -837,7 +875,8 @@ async def _sync_patches_classic(
         total_upserted += 1
 
     await db_session.flush()
-    logger.info("classic patch sync: %d titles from %s", total_upserted, base_url)
+    deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
+    logger.info("classic patch sync: %d titles from %s (deleted stale: %d)", total_upserted, base_url, deleted)
     return total_upserted
 
 
