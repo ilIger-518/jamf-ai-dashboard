@@ -1096,5 +1096,5 @@ async def preflight_migration(
         entity_type=body.entity_type,
         source_server_id=body.source_server_id,
         target_server_id=body.target_server_id,
-            items=preflight_items,
+        items=preflight_items,
     )
