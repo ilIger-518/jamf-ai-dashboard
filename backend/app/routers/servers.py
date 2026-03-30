@@ -19,7 +19,7 @@ from app.schemas.servers import (
     ServerUpdate,
 )
 from app.services.encryption import encrypt
-from app.services.jamf.sync import get_sync_status, sync_all_servers, sync_server
+from app.services.jamf.sync import get_sync_result, get_sync_status, sync_all_servers, sync_server
 
 router = APIRouter(prefix="/servers", tags=["servers"])
 
@@ -283,10 +283,33 @@ async def get_server_sync_status(server_id: uuid.UUID, db: DBSession, _: Current
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server not found")
 
     sync_status = await get_sync_status(str(server_id))
+    last_result = await get_sync_result(str(server_id))
     return {
         "server_id": str(server_id),
         "status": sync_status,
         "last_sync": server.last_sync.isoformat() if server.last_sync else None,
         "last_sync_error": server.last_sync_error,
+        "last_sync_result": last_result,
     }
+
+
+@router.get("/sync/statuses")
+async def get_all_server_sync_statuses(db: DBSession, _: CurrentUser) -> list[dict]:
+    """Return sync status and last summary payload for all servers."""
+    result = await db.execute(select(JamfServer).order_by(JamfServer.name))
+    servers = result.scalars().all()
+
+    rows: list[dict] = []
+    for server in servers:
+        server_id = str(server.id)
+        rows.append(
+            {
+                "server_id": server_id,
+                "status": await get_sync_status(server_id),
+                "last_sync": server.last_sync.isoformat() if server.last_sync else None,
+                "last_sync_error": server.last_sync_error,
+                "last_sync_result": await get_sync_result(server_id),
+            }
+        )
+    return rows
 

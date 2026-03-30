@@ -13,6 +13,7 @@ OAuth:  POST /api/oauth/token  (client_credentials grant)
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 
@@ -42,6 +43,10 @@ def _redis_key(server_id: str) -> str:
     return f"sync:status:{server_id}"
 
 
+def _redis_result_key(server_id: str) -> str:
+    return f"sync:last_result:{server_id}"
+
+
 async def get_sync_status(server_id: str) -> str:
     """Return 'running', 'idle', or 'error' from Redis (default: 'idle')."""
     redis = await get_redis()
@@ -56,6 +61,25 @@ async def get_sync_status(server_id: str) -> str:
 async def _set_status(server_id: str, status: str) -> None:
     redis = await get_redis()
     await redis.set(_redis_key(server_id), status, ex=_SYNC_STATUS_TTL)
+
+
+async def get_sync_result(server_id: str) -> dict | None:
+    """Return the latest sync summary payload from Redis, if available."""
+    redis = await get_redis()
+    val = await redis.get(_redis_result_key(server_id))
+    if val is None:
+        return None
+    raw = val.decode() if isinstance(val, bytes) else str(val)
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _set_sync_result(server_id: str, payload: dict) -> None:
+    redis = await get_redis()
+    await redis.set(_redis_result_key(server_id), json.dumps(payload), ex=_SYNC_STATUS_TTL)
 
 
 # ---------------------------------------------------------------------------
@@ -93,14 +117,16 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
 
 
-async def _upsert_device(db_session, server_id, jamf_id: int, fields: dict) -> None:
+async def _upsert_device(db_session, server_id, jamf_id: int, fields: dict) -> str:
     existing = await db_session.execute(
         select(Device).where(Device.jamf_id == jamf_id, Device.server_id == server_id)
     )
     devices = existing.scalars().all()
+    action = "updated"
     if not devices:
         device = Device(jamf_id=jamf_id, server_id=server_id)
         db_session.add(device)
+        action = "created"
     else:
         device = devices[0]
         for dup in devices[1:]:
@@ -109,6 +135,7 @@ async def _upsert_device(db_session, server_id, jamf_id: int, fields: dict) -> N
     for attr, value in fields.items():
         setattr(device, attr, value)
     device.synced_at = datetime.now(UTC)
+    return action
 
 
 async def _purge_missing_by_jamf_id(db_session, model, server_id, seen_ids: set[int]) -> int:
@@ -127,11 +154,13 @@ async def _purge_missing_by_jamf_id(db_session, model, server_id, seen_ids: set[
 
 async def _sync_computers_v2(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int | None:
+) -> tuple[int, int, int] | None:
     """Try the v2 computers endpoint. Returns upsert count or None if not available."""
     base_url = server.url
     headers = {"Authorization": f"Bearer {token}"}
     page, total_upserted = 0, 0
+    created_count = 0
+    updated_count = 0
     seen_ids: set[int] = set()
 
     while True:
@@ -164,7 +193,7 @@ async def _sync_computers_v2(
             location = comp.get("location") or {}
             mdm = general.get("mdmCapable") or {}
 
-            await _upsert_device(db_session, server.id, jamf_id, {
+            action = await _upsert_device(db_session, server.id, jamf_id, {
                 "name": general.get("name") or comp.get("name") or f"Computer {jamf_id}",
                 "udid": comp.get("udid"),
                 "serial_number": comp.get("serialNumber"),
@@ -182,6 +211,10 @@ async def _sync_computers_v2(
                 "department": location.get("department"),
                 "building": location.get("building"),
             })
+            if action == "created":
+                created_count += 1
+            else:
+                updated_count += 1
             total_upserted += 1
 
         await db_session.flush()
@@ -194,7 +227,7 @@ async def _sync_computers_v2(
     deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
 
     logger.info("v2 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 # ---------------------------------------------------------------------------
@@ -204,11 +237,13 @@ async def _sync_computers_v2(
 
 async def _sync_computers_v1(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int | None:
+) -> tuple[int, int, int] | None:
     """Try the v1 computers-preview endpoint. Returns count or None."""
     base_url = server.url
     headers = {"Authorization": f"Bearer {token}"}
     page, total_upserted = 0, 0
+    created_count = 0
+    updated_count = 0
     seen_ids: set[int] = set()
 
     while True:
@@ -235,7 +270,7 @@ async def _sync_computers_v1(
                 continue
             seen_ids.add(jamf_id)
 
-            await _upsert_device(db_session, server.id, jamf_id, {
+            action = await _upsert_device(db_session, server.id, jamf_id, {
                 "name": comp.get("name") or f"Computer {jamf_id}",
                 "udid": comp.get("udid"),
                 "serial_number": comp.get("serialNumber"),
@@ -252,6 +287,10 @@ async def _sync_computers_v1(
                 "building": comp.get("buildingName"),
                 "site": (comp.get("site") or {}).get("name"),
             })
+            if action == "created":
+                created_count += 1
+            else:
+                updated_count += 1
             total_upserted += 1
 
         await db_session.flush()
@@ -264,7 +303,7 @@ async def _sync_computers_v1(
     deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
 
     logger.info("v1 sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +335,7 @@ async def _fetch_computer_detail_classic(
 
 async def _sync_computers_classic(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int:
+) -> tuple[int, int, int]:
     """Fall back to classic Jamf API. Fetches per-device detail for full hardware info."""
     base_url = server.url
     resp = await client.get(
@@ -319,6 +358,8 @@ async def _sync_computers_classic(
     )
 
     total_upserted = 0
+    created_count = 0
+    updated_count = 0
     for jamf_id, detail in zip(valid_ids, details):
         if detail is None:
             continue
@@ -328,7 +369,7 @@ async def _sync_computers_classic(
         location = detail.get("location") or {}
         remote_mgmt = general.get("remote_management") or {}
 
-        await _upsert_device(db_session, server.id, jamf_id, {
+        action = await _upsert_device(db_session, server.id, jamf_id, {
             "name": general.get("name") or f"Computer {jamf_id}",
             "udid": general.get("udid"),
             "serial_number": general.get("serial_number"),
@@ -349,12 +390,16 @@ async def _sync_computers_classic(
             "department": location.get("department"),
             "building": location.get("building"),
         })
+        if action == "created":
+            created_count += 1
+        else:
+            updated_count += 1
         total_upserted += 1
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
     logger.info("classic sync: %d computers from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +408,7 @@ async def _sync_computers_classic(
 
 async def _sync_computers(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int:
+) -> tuple[int, int, int]:
     for strategy in (_sync_computers_v2, _sync_computers_v1):
         result = await strategy(db_session, server, client, token)
         if result is not None:
@@ -377,14 +422,16 @@ async def _sync_computers(
 # Policy sync — Jamf Pro REST API (/api/v1/policies), Classic fallback
 # ---------------------------------------------------------------------------
 
-async def _upsert_policy(db_session, server_id, jamf_id: int, fields: dict) -> None:
+async def _upsert_policy(db_session, server_id, jamf_id: int, fields: dict) -> str:
     existing = await db_session.execute(
         select(Policy).where(Policy.jamf_id == jamf_id, Policy.server_id == server_id)
     )
     policies = existing.scalars().all()
+    action = "updated"
     if not policies:
         policy = Policy(jamf_id=jamf_id, server_id=server_id)
         db_session.add(policy)
+        action = "created"
     else:
         policy = policies[0]
         for dup in policies[1:]:
@@ -393,6 +440,7 @@ async def _upsert_policy(db_session, server_id, jamf_id: int, fields: dict) -> N
     for attr, value in fields.items():
         setattr(policy, attr, value)
     policy.synced_at = datetime.now(UTC)
+    return action
 
 
 def _scope_description_from_modern(scope: dict) -> str | None:
@@ -438,7 +486,7 @@ async def _fetch_policy_detail_v1(
 
 async def _sync_policies_v1(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int | None:
+) -> tuple[int, int, int] | None:
     """Sync policies via the Jamf Pro REST API (/api/v1/policies).
 
     Returns the upsert count, or None if the endpoint is not available.
@@ -477,9 +525,11 @@ async def _sync_policies_v1(
         logger.info("No policies found via /api/v1/policies on %s", base_url)
         deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, set())
         logger.info("v1 policy sync: 0 policies from %s (deleted stale: %d)", base_url, deleted)
-        return 0
+        return 0, 0, deleted
 
     seen_ids = {int(s["id"]) for s in all_stubs if s.get("id")}
+    created_count = 0
+    updated_count = 0
 
     # Fetch full detail for each policy concurrently (max 10 in-flight)
     semaphore = asyncio.Semaphore(10)
@@ -500,7 +550,7 @@ async def _sync_policies_v1(
         general = src.get("general") or src  # v1 may be flat or nested
         scope = src.get("scope") or {}
 
-        await _upsert_policy(db_session, server.id, jamf_id, {
+        action = await _upsert_policy(db_session, server.id, jamf_id, {
             "name": general.get("name") or src.get("name") or f"Policy {jamf_id}",
             "enabled": bool(general.get("enabled", src.get("enabled", True))),
             "category": (general.get("category") or {}).get("name")
@@ -510,12 +560,16 @@ async def _sync_policies_v1(
             "scope_description": _scope_description_from_modern(scope),
             "payload_description": None,
         })
+        if action == "created":
+            created_count += 1
+        else:
+            updated_count += 1
         total_upserted += 1
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
     logger.info("v1 policy sync: %d policies from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 async def _fetch_policy_detail_classic(
@@ -543,7 +597,7 @@ async def _fetch_policy_detail_classic(
 
 async def _sync_policies_classic(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int:
+) -> tuple[int, int, int]:
     """Sync policies via the Classic API (/JSSResource/policies). Always available."""
     base_url = server.url
     resp = await client.get(
@@ -567,10 +621,12 @@ async def _sync_policies_classic(
         logger.info("No policies found via Classic API on %s", base_url)
         deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, set())
         logger.info("classic policy sync: 0 policies from %s (deleted stale: %d)", base_url, deleted)
-        return 0
+        return 0, 0, deleted
 
     valid_stubs = [s for s in policy_stubs if s.get("id")]
     seen_ids = {int(s["id"]) for s in valid_stubs}
+    created_count = 0
+    updated_count = 0
     semaphore = asyncio.Semaphore(10)
     details = await asyncio.gather(
         *[
@@ -600,7 +656,7 @@ async def _sync_policies_classic(
             if names:
                 scope_parts.append("Groups: " + ", ".join(names))
 
-        await _upsert_policy(db_session, server.id, jamf_id, {
+        action = await _upsert_policy(db_session, server.id, jamf_id, {
             "name": general.get("name") or stub.get("name") or f"Policy {jamf_id}",
             "enabled": bool(general.get("enabled", True)),
             "category": (general.get("category") or {}).get("name") or None,
@@ -608,17 +664,21 @@ async def _sync_policies_classic(
             "scope_description": "; ".join(scope_parts) if scope_parts else None,
             "payload_description": None,
         })
+        if action == "created":
+            created_count += 1
+        else:
+            updated_count += 1
         total_upserted += 1
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
     logger.info("classic policy sync: %d policies from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 async def _sync_policies(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int:
+) -> tuple[int, int, int]:
     """Sync policies: try Jamf Pro REST API first, fall back to Classic API."""
     result = await _sync_policies_v1(db_session, server, client, token)
     if result is not None:
@@ -631,14 +691,16 @@ async def _sync_policies(
 # Smart group sync — Classic API (/JSSResource/computergroups)
 # ---------------------------------------------------------------------------
 
-async def _upsert_smart_group(db_session, server_id, jamf_id: int, fields: dict) -> None:
+async def _upsert_smart_group(db_session, server_id, jamf_id: int, fields: dict) -> str:
     existing = await db_session.execute(
         select(SmartGroup).where(SmartGroup.jamf_id == jamf_id, SmartGroup.server_id == server_id)
     )
     groups = existing.scalars().all()
+    action = "updated"
     if not groups:
         sg = SmartGroup(jamf_id=jamf_id, server_id=server_id)
         db_session.add(sg)
+        action = "created"
     else:
         sg = groups[0]
         for dup in groups[1:]:
@@ -646,6 +708,7 @@ async def _upsert_smart_group(db_session, server_id, jamf_id: int, fields: dict)
     for attr, value in fields.items():
         setattr(sg, attr, value)
     sg.synced_at = datetime.now(UTC)
+    return action
 
 
 async def _fetch_smart_group_detail(
@@ -672,7 +735,7 @@ async def _fetch_smart_group_detail(
 
 async def _sync_smart_groups(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int:
+) -> tuple[int, int, int]:
     """Sync computer smart groups via the Classic API."""
     base_url = server.url
     resp = await client.get(
@@ -697,9 +760,11 @@ async def _sync_smart_groups(
         logger.info("No smart groups found on %s", base_url)
         deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, set())
         logger.info("smart group sync: 0 groups from %s (deleted stale: %d)", base_url, deleted)
-        return 0
+        return 0, 0, deleted
 
     seen_ids = {int(g["id"]) for g in smart_stubs if g.get("id")}
+    created_count = 0
+    updated_count = 0
 
     semaphore = asyncio.Semaphore(10)
     details = await asyncio.gather(
@@ -734,31 +799,37 @@ async def _sync_smart_groups(
         else:
             member_count = detail.get("size") or len(computers_raw)
 
-        await _upsert_smart_group(db_session, server.id, jamf_id, {
+        action = await _upsert_smart_group(db_session, server.id, jamf_id, {
             "name": detail.get("name") or stub.get("name") or f"Group {jamf_id}",
             "criteria": criteria if criteria else None,
             "member_count": member_count,
         })
+        if action == "created":
+            created_count += 1
+        else:
+            updated_count += 1
         total_upserted += 1
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, seen_ids)
     logger.info("smart group sync: %d groups from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 # ---------------------------------------------------------------------------
 # Patch title sync — modern API first, Classic fallback
 # ---------------------------------------------------------------------------
 
-async def _upsert_patch_title(db_session, server_id, jamf_id: int, fields: dict) -> None:
+async def _upsert_patch_title(db_session, server_id, jamf_id: int, fields: dict) -> str:
     existing = await db_session.execute(
         select(PatchTitle).where(PatchTitle.jamf_id == jamf_id, PatchTitle.server_id == server_id)
     )
     patch_titles = existing.scalars().all()
+    action = "updated"
     if not patch_titles:
         pt = PatchTitle(jamf_id=jamf_id, server_id=server_id)
         db_session.add(pt)
+        action = "created"
     else:
         pt = patch_titles[0]
         for dup in patch_titles[1:]:
@@ -766,11 +837,12 @@ async def _upsert_patch_title(db_session, server_id, jamf_id: int, fields: dict)
     for attr, value in fields.items():
         setattr(pt, attr, value)
     pt.synced_at = datetime.now(UTC)
+    return action
 
 
 async def _sync_patches_modern(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int | None:
+) -> tuple[int, int, int] | None:
     """Sync patch titles via /api/v2/patch-software-title-configurations.
 
     Returns upsert count, or None if endpoint is unavailable.
@@ -814,6 +886,8 @@ async def _sync_patches_modern(
             page += 1
 
     seen_ids = {int(item.get("id", 0) or 0) for item in all_items if isinstance(item, dict) and item.get("id")}
+    created_count = 0
+    updated_count = 0
 
     for item in all_items:
         if not isinstance(item, dict):
@@ -823,24 +897,28 @@ async def _sync_patches_modern(
             continue
         enrolled = int(item.get("enrolledDeviceCount") or 0)
         installed = int(item.get("installedDeviceCount") or 0)
-        await _upsert_patch_title(db_session, server.id, jamf_id, {
+        action = await _upsert_patch_title(db_session, server.id, jamf_id, {
             "software_title": item.get("softwareTitleName") or f"Title {jamf_id}",
             "latest_version": item.get("targetPatchVersion") or None,
             "current_version": item.get("targetPatchVersion") or None,
             "patched_count": installed,
             "unpatched_count": max(enrolled - installed, 0),
         })
+        if action == "created":
+            created_count += 1
+        else:
+            updated_count += 1
         total_upserted += 1
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
     logger.info("modern patch sync: %d titles from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 async def _sync_patches_classic(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int:
+) -> tuple[int, int, int]:
     """Sync patch titles via the Classic API (/JSSResource/patchsoftwaretitles)."""
     base_url = server.url
     resp = await client.get(
@@ -859,30 +937,36 @@ async def _sync_patches_classic(
         stubs = titles_val
 
     seen_ids = {int(stub.get("id", 0)) for stub in stubs if stub.get("id")}
+    created_count = 0
+    updated_count = 0
 
     total_upserted = 0
     for stub in stubs:
         jamf_id = int(stub.get("id", 0))
         if not jamf_id:
             continue
-        await _upsert_patch_title(db_session, server.id, jamf_id, {
+        action = await _upsert_patch_title(db_session, server.id, jamf_id, {
             "software_title": stub.get("name") or f"Title {jamf_id}",
             "latest_version": stub.get("current_version") or None,
             "current_version": stub.get("current_version") or None,
             "patched_count": 0,
             "unpatched_count": 0,
         })
+        if action == "created":
+            created_count += 1
+        else:
+            updated_count += 1
         total_upserted += 1
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
     logger.info("classic patch sync: %d titles from %s (deleted stale: %d)", total_upserted, base_url, deleted)
-    return total_upserted
+    return created_count, updated_count, deleted
 
 
 async def _sync_patches(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> int:
+) -> tuple[int, int, int]:
     """Sync patch titles: modern API first, Classic fallback."""
     result = await _sync_patches_modern(db_session, server, client, token)
     if result is not None:
@@ -915,18 +999,71 @@ async def sync_server(server_id: str) -> None:
 
             async with httpx.AsyncClient(timeout=120) as http:
                 token = await _get_oauth_token(http, server.url, client_id, client_secret)
-                count = await _sync_computers(db, server, http, token)
-                policy_count = await _sync_policies(db, server, http, token)
-                sg_count = await _sync_smart_groups(db, server, http, token)
-                patch_count = await _sync_patches(db, server, http, token)
+                device_created, device_updated, device_deleted = await _sync_computers(db, server, http, token)
+                policy_created, policy_updated, policy_deleted = await _sync_policies(db, server, http, token)
+                sg_created, sg_updated, sg_deleted = await _sync_smart_groups(db, server, http, token)
+                patch_created, patch_updated, patch_deleted = await _sync_patches(db, server, http, token)
 
             server.last_sync = datetime.now(UTC)
             server.last_sync_error = None
             await db.commit()
 
+            await _set_sync_result(
+                server_id,
+                {
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "status": "success",
+                    "devices": {
+                        "created": device_created,
+                        "updated": device_updated,
+                        "deleted": device_deleted,
+                    },
+                    "policies": {
+                        "created": policy_created,
+                        "updated": policy_updated,
+                        "deleted": policy_deleted,
+                    },
+                    "smart_groups": {
+                        "created": sg_created,
+                        "updated": sg_updated,
+                        "deleted": sg_deleted,
+                    },
+                    "patch_titles": {
+                        "created": patch_created,
+                        "updated": patch_updated,
+                        "deleted": patch_deleted,
+                    },
+                },
+            )
+
+            device_total = device_created + device_updated
+            policy_total = policy_created + policy_updated
+            sg_total = sg_created + sg_updated
+            patch_total = patch_created + patch_updated
+
             logger.info(
-                "Sync complete: server=%s devices=%d policies=%d smart_groups=%d patches=%d",
-                server_id, count, policy_count, sg_count, patch_count,
+                "Sync complete: server=%s "
+                "devices(c=%d,u=%d,d=%d,total=%d) "
+                "policies(c=%d,u=%d,d=%d,total=%d) "
+                "smart_groups(c=%d,u=%d,d=%d,total=%d) "
+                "patches(c=%d,u=%d,d=%d,total=%d)",
+                server_id,
+                device_created,
+                device_updated,
+                device_deleted,
+                device_total,
+                policy_created,
+                policy_updated,
+                policy_deleted,
+                policy_total,
+                sg_created,
+                sg_updated,
+                sg_deleted,
+                sg_total,
+                patch_created,
+                patch_updated,
+                patch_deleted,
+                patch_total,
             )
             await _set_status(server_id, "idle")
 
@@ -934,6 +1071,15 @@ async def sync_server(server_id: str) -> None:
             await db.rollback()
             error_msg = str(exc)
             logger.error("Sync failed: server=%s error=%s", server_id, error_msg)
+
+            await _set_sync_result(
+                server_id,
+                {
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "status": "error",
+                    "error": error_msg[:500],
+                },
+            )
 
             # Persist error to the server row
             try:

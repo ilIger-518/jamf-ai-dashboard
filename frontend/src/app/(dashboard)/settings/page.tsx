@@ -40,6 +40,30 @@ interface JamfServer {
   created_at: string;
 }
 
+interface SyncObjectSummary {
+  created: number;
+  updated: number;
+  deleted: number;
+}
+
+interface ServerSyncResult {
+  finished_at?: string;
+  status?: string;
+  error?: string;
+  devices?: SyncObjectSummary;
+  policies?: SyncObjectSummary;
+  smart_groups?: SyncObjectSummary;
+  patch_titles?: SyncObjectSummary;
+}
+
+interface ServerSyncStatusRow {
+  server_id: string;
+  status: "running" | "idle" | "error" | string;
+  last_sync: string | null;
+  last_sync_error: string | null;
+  last_sync_result: ServerSyncResult | null;
+}
+
 interface ServerFormValues {
   name: string;
   url: string;
@@ -2033,6 +2057,17 @@ export default function SettingsPage() {
     queryFn: () => api.get<JamfServer[]>("/servers").then((r) => r.data),
   });
 
+  const { data: syncStatuses = [] } = useQuery<ServerSyncStatusRow[]>({
+    queryKey: ["servers-sync-statuses"],
+    queryFn: () => api.get<ServerSyncStatusRow[]>("/servers/sync/statuses").then((r) => r.data),
+    refetchInterval: 5_000,
+  });
+
+  const syncStatusByServerId = useMemo(
+    () => new Map(syncStatuses.map((row) => [row.server_id, row])),
+    [syncStatuses],
+  );
+
   const createMutation = useMutation({
     mutationFn: (body: ServerFormValues) => api.post("/servers", body),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["servers"] }); toast.success("Server added"); setModal(null); },
@@ -2060,11 +2095,13 @@ export default function SettingsPage() {
       // Poll the server list until last_sync updates
       const poll = setInterval(() => {
         qc.invalidateQueries({ queryKey: ["servers"] });
+        qc.invalidateQueries({ queryKey: ["servers-sync-statuses"] });
       }, 3000);
       setTimeout(() => {
         clearInterval(poll);
         setSyncingIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
         qc.invalidateQueries({ queryKey: ["servers"] });
+        qc.invalidateQueries({ queryKey: ["servers-sync-statuses"] });
       }, 30_000);
     },
     onError: (_, id) => {
@@ -2078,8 +2115,16 @@ export default function SettingsPage() {
     onMutate: () => setSyncingAll(true),
     onSuccess: () => {
       toast.success("Sync all started");
-      const poll = setInterval(() => qc.invalidateQueries({ queryKey: ["servers"] }), 3000);
-      setTimeout(() => { clearInterval(poll); setSyncingAll(false); qc.invalidateQueries({ queryKey: ["servers"] }); }, 60_000);
+      const poll = setInterval(() => {
+        qc.invalidateQueries({ queryKey: ["servers"] });
+        qc.invalidateQueries({ queryKey: ["servers-sync-statuses"] });
+      }, 3000);
+      setTimeout(() => {
+        clearInterval(poll);
+        setSyncingAll(false);
+        qc.invalidateQueries({ queryKey: ["servers"] });
+        qc.invalidateQueries({ queryKey: ["servers-sync-statuses"] });
+      }, 60_000);
     },
     onError: () => { toast.error("Sync all failed"); setSyncingAll(false); },
   });
@@ -2223,7 +2268,9 @@ export default function SettingsPage() {
             {servers.map((s) => (
               <li key={s.id} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
-                  {s.is_active ? (
+                  {(syncStatusByServerId.get(s.id)?.status === "running" || syncingIds.has(s.id) || syncingAll) ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-blue-500" />
+                  ) : s.is_active ? (
                     <CheckCircle className="h-4 w-4 shrink-0 text-green-500" />
                   ) : (
                     <XCircle className="h-4 w-4 shrink-0 text-gray-400" />
@@ -2241,6 +2288,32 @@ export default function SettingsPage() {
                         Last sync: {new Date(s.last_sync).toLocaleString()}
                       </p>
                     )}
+                    {(() => {
+                      const statusRow = syncStatusByServerId.get(s.id);
+                      const result = statusRow?.last_sync_result;
+                      if (!result || result.status !== "success") return null;
+
+                      const parts: string[] = [];
+                      if (result.devices) {
+                        parts.push(`Devices c${result.devices.created}/u${result.devices.updated}/d${result.devices.deleted}`);
+                      }
+                      if (result.policies) {
+                        parts.push(`Policies c${result.policies.created}/u${result.policies.updated}/d${result.policies.deleted}`);
+                      }
+                      if (result.smart_groups) {
+                        parts.push(`Smart Groups c${result.smart_groups.created}/u${result.smart_groups.updated}/d${result.smart_groups.deleted}`);
+                      }
+                      if (result.patch_titles) {
+                        parts.push(`Patches c${result.patch_titles.created}/u${result.patch_titles.updated}/d${result.patch_titles.deleted}`);
+                      }
+                      if (parts.length === 0) return null;
+
+                      return (
+                        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                          Last result: {parts.join(" • ")}
+                        </p>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
