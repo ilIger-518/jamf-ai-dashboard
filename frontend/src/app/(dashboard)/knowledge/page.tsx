@@ -120,6 +120,13 @@ function formatRate(v: number, digits = 2): string {
   return v.toFixed(digits);
 }
 
+function filenameFromContentDisposition(contentDisposition?: string | null): string | null {
+  if (!contentDisposition) return null;
+  const match = contentDisposition.match(/filename\*?=(?:UTF-8''|\")?([^\";]+)/i);
+  if (!match?.[1]) return null;
+  return decodeURIComponent(match[1].replace(/^\"|\"$/g, "")).trim();
+}
+
 function isCpuLimitEnabled(job: ScrapeJob, system?: ScrapeSystemInfo): boolean {
   if (job.cpu_cap_mode === "core") {
     const maxCore = system?.max_core_percent;
@@ -664,6 +671,51 @@ export default function KnowledgePage() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const previousSnapshotRef = useRef<Record<string, { pages: number; bytes: number; tsMs: number }>>({});
 
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(blobUrl);
+  };
+
+  const downloadAllKnowledgeBases = async () => {
+    try {
+      const response = await api.get<Blob>("/knowledge/bases/download-all", {
+        responseType: "blob",
+      });
+      const filename =
+        filenameFromContentDisposition(response.headers["content-disposition"]) ??
+        "knowledge-bases-export.json";
+      triggerDownload(response.data, filename);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        "Failed to download all knowledge bases";
+      toast.error(msg);
+    }
+  };
+
+  const downloadKnowledgeBase = async (kb: KnowledgeBase) => {
+    try {
+      const response = await api.get<Blob>(`/knowledge/bases/${kb.id}/download`, {
+        responseType: "blob",
+      });
+      const fallbackName = `${kb.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "knowledge-base"}-export.json`;
+      const filename =
+        filenameFromContentDisposition(response.headers["content-disposition"]) ?? fallbackName;
+      triggerDownload(response.data, filename);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        `Failed to download knowledge base ${kb.name}`;
+      toast.error(msg);
+    }
+  };
+
   const { data: knowledgeBases = [], isLoading: basesLoading } = useQuery<KnowledgeBase[]>({
     queryKey: ["knowledge-bases"],
     queryFn: () => api.get<KnowledgeBase[]>("/knowledge/bases").then((r) => r.data),
@@ -862,14 +914,15 @@ export default function KnowledgePage() {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Knowledge Bases</h2>
-          <a
-            href={`${api.defaults.baseURL}/knowledge/bases/download-all`}
+          <button
+            type="button"
+            onClick={downloadAllKnowledgeBases}
             className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
             title="Download all knowledge bases"
           >
             <Download className="h-3.5 w-3.5" />
             Download All
-          </a>
+          </button>
         </div>
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
           <div className="border-b border-gray-200 p-4 dark:border-gray-700">
@@ -929,14 +982,17 @@ export default function KnowledgePage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{kb.is_default ? "Yes" : "No"}</td>
                     <td className="px-4 py-3 text-right">
-                      <a
-                        href={`${api.defaults.baseURL}/knowledge/bases/${kb.id}/download`}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void downloadKnowledgeBase(kb);
+                        }}
                         className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                         title="Download knowledge base export"
                       >
                         <Download className="h-3.5 w-3.5" />
                         Download
-                      </a>
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
