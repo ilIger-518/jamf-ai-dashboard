@@ -1,6 +1,7 @@
 """Authentication router: register, login, refresh, logout, me."""
 
 import uuid
+from typing import Literal
 from urllib.parse import urlencode
 
 import httpx
@@ -27,7 +28,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 REFRESH_COOKIE = "refresh_token"
 COOKIE_SECURE = get_settings().cookie_secure
 COOKIE_HTTPONLY = True
-COOKIE_SAMESITE = "lax"
+COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
 SSO_STATE_PREFIX = "microsoft_sso_state:"
 
 

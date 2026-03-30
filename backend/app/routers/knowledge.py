@@ -795,7 +795,11 @@ async def list_scrape_jobs(_: CurrentUser) -> list[ScrapeJobResponse]:
         kb_result = await session.execute(select(KnowledgeBase))
         kb_map = {kb.id: kb for kb in kb_result.scalars().all()}
     return [
-        ScrapeJobResponse.from_orm(j, knowledge_base=kb_map.get(j.knowledge_base_id)) for j in jobs
+        ScrapeJobResponse.from_orm(
+            j,
+            knowledge_base=kb_map.get(j.knowledge_base_id) if j.knowledge_base_id else None,
+        )
+        for j in jobs
     ]
 
 
@@ -1052,7 +1056,11 @@ async def list_sources(
     total_pages = (total + page_size - 1) // page_size if total > 0 else 0
     return SourceListResponse(
         items=[
-            SourceResponse.from_orm(d, knowledge_base=kb_map.get(d.knowledge_base_id)) for d in docs
+            SourceResponse.from_orm(
+                d,
+                knowledge_base=kb_map.get(d.knowledge_base_id) if d.knowledge_base_id else None,
+            )
+            for d in docs
         ],
         total=total,
         page=page,

@@ -102,7 +102,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Shutting down")
     scheduler.shutdown(wait=False)
     await close_redis()
-    await engine.dispose()  # type: ignore[union-attr]
+    await engine.dispose()
 
 
 def create_app() -> FastAPI:

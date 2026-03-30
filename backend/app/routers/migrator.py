@@ -6,7 +6,7 @@ Supports cross-server migration for policies, smart groups, and static groups.
 import logging
 import uuid
 from copy import deepcopy
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, cast
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
@@ -92,7 +92,7 @@ async def _list_source_objects(
     client: httpx.AsyncClient,
     base_url: str,
     token: str,
-    entity_type: str,
+    entity_type: Literal["policy", "smart_group", "static_group", "script"],
 ) -> list[MigratorObject]:
     if entity_type == "policy":
         resp = await client.get(
@@ -144,7 +144,7 @@ async def _list_source_objects(
         MigratorObject(
             id=int(g["id"]),
             name=g.get("name") or f"Group {g['id']}",
-            entity_type=entity_type,
+            entity_type=cast(Literal["smart_group", "static_group"], entity_type),
         )
         for g in groups
         if g.get("id")
@@ -225,7 +225,9 @@ def _collect_policy_dependency_refs(policy_detail: dict) -> tuple[dict[int, str]
 
     def _to_int(v: object) -> int | None:
         try:
-            return int(v)  # type: ignore[arg-type]
+            if isinstance(v, bool) or not isinstance(v, (int, float, str)):
+                return None
+            return int(v)
         except (TypeError, ValueError):
             return None
 
@@ -433,7 +435,7 @@ async def _target_names(
     client: httpx.AsyncClient,
     base_url: str,
     token: str,
-    entity_type: str,
+    entity_type: Literal["policy", "smart_group", "static_group", "script"],
 ) -> set[str]:
     items = await _list_source_objects(client, base_url, token, entity_type)
     return {i.name for i in items}
@@ -687,7 +689,7 @@ def _filter_policy_payload_dependencies(
 ) -> object | None:
     """Strip unselected policy dependencies from payload so target uses nothing for unchecked items."""
     if isinstance(node, list):
-        out: list[object] = []
+        filtered_items: list[object] = []
         for item in node:
             filtered = _filter_policy_payload_dependencies(
                 item,
@@ -697,14 +699,14 @@ def _filter_policy_payload_dependencies(
                 parent_key=parent_key,
             )
             if filtered is not None:
-                out.append(filtered)
-        return out
+                filtered_items.append(filtered)
+        return filtered_items
 
     if isinstance(node, dict):
         if parent_key in {"script", "computer_group"}:
             raw_id = node.get("id")
             try:
-                dep_id = int(raw_id)
+                dep_id = int(raw_id) if isinstance(raw_id, (int, float, str)) else None
             except (TypeError, ValueError):
                 dep_id = None
             # If dependency selection is explicit and this reference has no usable source ID,
@@ -716,18 +718,18 @@ def _filter_policy_payload_dependencies(
                 if dep_id is None or dep_id not in allowed_group_ids:
                     return None
 
-        out: dict = {}
+        filtered_dict: dict[str, object] = {}
         for k, v in node.items():
             if k == "category":
                 if allowed_categories is None:
-                    out[k] = v
+                    filtered_dict[k] = v
                 elif isinstance(v, str):
                     if v in allowed_categories:
-                        out[k] = v
+                        filtered_dict[k] = v
                 elif isinstance(v, dict):
                     name = v.get("name")
                     if isinstance(name, str) and name in allowed_categories:
-                        out[k] = v
+                        filtered_dict[k] = v
                 continue
 
             filtered = _filter_policy_payload_dependencies(
@@ -738,8 +740,8 @@ def _filter_policy_payload_dependencies(
                 parent_key=k,
             )
             if filtered is not None:
-                out[k] = filtered
-        return out
+                filtered_dict[k] = filtered
+        return filtered_dict
 
     return node
 
@@ -834,9 +836,10 @@ async def migrate_objects(
                     )
                     continue
 
-                payload = _strip_nonportable_fields(detail)
-                if not isinstance(payload, dict):
+                payload_obj = _strip_nonportable_fields(detail)
+                if not isinstance(payload_obj, dict):
                     raise RuntimeError("Invalid payload received from source")
+                payload: dict[str, Any] = payload_obj
 
                 if body.entity_type == "policy":
                     script_refs, group_refs = _collect_policy_dependency_refs(detail)
@@ -884,12 +887,13 @@ async def migrate_objects(
                         )
 
                     # Preserve and remap script/group reference IDs inside policy payload.
-                    payload = _strip_nonportable_fields_with_id_context(
+                    payload_obj = _strip_nonportable_fields_with_id_context(
                         detail,
                         keep_id_under={"script", "computer_group"},
                     )
-                    if not isinstance(payload, dict):
+                    if not isinstance(payload_obj, dict):
                         raise RuntimeError("Invalid policy payload after sanitization")
+                    payload = cast(dict[str, Any], payload_obj)
 
                     filtered_payload = _filter_policy_payload_dependencies(
                         payload,
@@ -901,11 +905,14 @@ async def migrate_objects(
                         raise RuntimeError("Invalid policy payload after dependency filtering")
                     payload = filtered_payload
 
-                    payload = _remap_policy_reference_ids(
+                    remapped_payload = _remap_policy_reference_ids(
                         payload,
                         script_id_map=script_id_map,
                         group_id_map=group_id_map,
                     )
+                    if not isinstance(remapped_payload, dict):
+                        raise RuntimeError("Invalid policy payload after id remap")
+                    payload = cast(dict[str, Any], remapped_payload)
 
                 # Static groups should not carry member IDs across servers by default.
                 if body.entity_type == "static_group" and not body.include_static_members:
@@ -1053,7 +1060,7 @@ async def preflight_migration(
             client, target.url.rstrip("/"), target_token
         )
 
-        items: list[MigrationPreflightItem] = []
+        preflight_items: list[MigrationPreflightItem] = []
         for object_id in body.object_ids:
             detail = await _fetch_object_detail(
                 client,
@@ -1081,11 +1088,13 @@ async def preflight_migration(
                 if cname not in target_categories:
                     deps.append(MigrationDependencyItem(dependency_type="category", name=cname))
 
-            items.append(MigrationPreflightItem(object_id=object_id, name=name, dependencies=deps))
+            preflight_items.append(
+                MigrationPreflightItem(object_id=object_id, name=name, dependencies=deps)
+            )
 
     return MigrationPreflightResponse(
         entity_type=body.entity_type,
         source_server_id=body.source_server_id,
         target_server_id=body.target_server_id,
-        items=items,
+            items=preflight_items,
     )

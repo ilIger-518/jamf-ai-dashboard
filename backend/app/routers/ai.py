@@ -1067,10 +1067,10 @@ async def chat_stream(current_user: CurrentUser, body: ChatRequest) -> Streaming
                         reply = "".join(reply_parts)
             else:
                 yield _ndjson_event({"type": "stage", "message": "Generating response..."})
-                reply_parts: list[str] = []
+                fallback_reply_parts: list[str] = []
                 word_buffer = ""
                 async for chunk in _stream_ollama(ollama_messages):
-                    reply_parts.append(chunk)
+                    fallback_reply_parts.append(chunk)
                     word_buffer += chunk
                     tokens = re.findall(r"\s*\S+\s*", word_buffer)
                     if tokens and word_buffer and not word_buffer[-1].isspace():
@@ -1082,7 +1082,7 @@ async def chat_stream(current_user: CurrentUser, body: ChatRequest) -> Streaming
                         word_buffer = word_buffer[len(consumed) :]
                 if word_buffer:
                     yield _ndjson_event({"type": "delta", "content": word_buffer})
-                reply = "".join(reply_parts)
+                reply = "".join(fallback_reply_parts)
 
             yield _ndjson_event({"type": "stage", "message": "Saving response..."})
             async with AsyncSessionLocal() as db:

@@ -94,7 +94,10 @@ def _extract_links(html: str, base_url: str) -> list[str]:
     soup = BeautifulSoup(html, "lxml")
     links: list[str] = []
     for a in soup.find_all("a", href=True):
-        href = a["href"]
+        href_raw = a.get("href")
+        if not isinstance(href_raw, str):
+            continue
+        href = href_raw
         if href.startswith(("mailto:", "javascript:", "#")):
             continue
         full = urljoin(base_url, href)
@@ -610,6 +613,16 @@ async def run_scrape_job(job_id: str) -> None:
                         logger.warning("Failed to fetch %s: %s", url, fetched)
                         errors.append(f"{url}: {fetched}")
                         await _append_job_log(job_id, f"Failed to fetch {url}: {fetched}", "error")
+                        continue
+
+                    if not isinstance(fetched, dict):
+                        logger.warning("Unexpected fetch result type for %s: %s", url, type(fetched))
+                        errors.append(f"{url}: unexpected fetch result type")
+                        await _append_job_log(
+                            job_id,
+                            f"Failed to fetch {url}: unexpected fetch result type",
+                            "error",
+                        )
                         continue
 
                     if fetched.get("status") != "ok":

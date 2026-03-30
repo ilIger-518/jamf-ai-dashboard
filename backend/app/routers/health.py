@@ -1,5 +1,7 @@
 """Health check router."""
 
+import inspect
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -28,7 +30,9 @@ async def health() -> HealthResponse:
 
     try:
         redis = await get_redis()
-        await redis.ping()
+        ping_result = redis.ping()
+        if inspect.isawaitable(ping_result):
+            await ping_result
     except Exception:
         redis_status = "error"
 

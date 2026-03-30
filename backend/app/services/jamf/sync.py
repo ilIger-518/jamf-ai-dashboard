@@ -802,7 +802,7 @@ async def _sync_smart_groups(
     )
     if resp.status_code != 200:
         logger.warning("GET /JSSResource/computergroups returned %d — skipping", resp.status_code)
-        return 0
+        return 0, 0, 0
 
     raw = resp.json()
     # Response is either {"computer_groups": [...]} or {"computer_groups": {"computer_group": [...]}}
@@ -1012,7 +1012,7 @@ async def _sync_patches_classic(
         logger.warning(
             "GET /JSSResource/patchsoftwaretitles returned %d — skipping", resp.status_code
         )
-        return 0
+        return 0, 0, 0
 
     raw = resp.json()
     titles_val = raw.get("patch_software_titles") or raw.get("patchSoftwareTitles") or []

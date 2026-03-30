@@ -16,7 +16,7 @@ CHUNK_SIZE = 800  # characters per chunk
 CHUNK_OVERLAP = 100  # overlap between chunks
 
 
-async def _get_chroma_client() -> chromadb.AsyncHttpClient:
+async def _get_chroma_client() -> Any:
     settings = get_settings()
     return await chromadb.AsyncHttpClient(
         host=settings.chroma_host,

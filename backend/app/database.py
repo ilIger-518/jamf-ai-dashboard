@@ -2,7 +2,12 @@
 
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
@@ -12,7 +17,7 @@ class Base(DeclarativeBase):
     """Shared declarative base for all ORM models."""
 
 
-def _create_engine() -> object:
+def _create_engine() -> AsyncEngine:
     settings = get_settings()
     return create_async_engine(
         settings.database_url,
@@ -26,7 +31,7 @@ def _create_engine() -> object:
 engine = _create_engine()
 
 AsyncSessionLocal = async_sessionmaker(
-    bind=engine,  # type: ignore[arg-type]
+    bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
     autocommit=False,
