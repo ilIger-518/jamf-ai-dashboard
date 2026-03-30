@@ -149,7 +149,7 @@ export function TopNav() {
     }
 
     return items;
-  }, [recentLogs, updateStatus?.latest_commit, updateStatus?.update_available, user?.is_admin]);
+  }, [recentLogs, updateStatus, user?.is_admin]);
 
   const unreadCount = notifications[0]?.id === "all-clear" ? 0 : notifications.length;
 
