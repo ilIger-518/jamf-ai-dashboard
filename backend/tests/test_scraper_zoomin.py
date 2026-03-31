@@ -61,8 +61,7 @@ _SPA_SHELL_HTML = (
 _MOCK_ARTICLE_HTML = "<article>" + ("X" * 200) + "</article>"
 
 _ZOOMIN_TOPIC_URL = (
-    "https://learn.jamf.com/en-US/bundle/jamf-pro-documentation-current"
-    "/page/Smart_Groups.html"
+    "https://learn.jamf.com/en-US/bundle/jamf-pro-documentation-current/page/Smart_Groups.html"
 )
 
 _ZOOMIN_ROOT_URL = "https://learn.jamf.com/"
@@ -227,9 +226,7 @@ async def test_fetch_candidate_page_uses_topic_html_for_links() -> None:
     topic_html = (
         "<article>"
         '<a href="/en-US/bundle/jamf-pro-documentation-current/page/Policies.html">'
-        "Policies</a>"
-        + ("Content " * 50)
-        + "</article>"
+        "Policies</a>" + ("Content " * 50) + "</article>"
     )
     api_json = {"topic_html": topic_html, "title": "Smart Groups"}
 
