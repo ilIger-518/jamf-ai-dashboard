@@ -7,7 +7,11 @@ Features:
   build the initial queue, bypassing SPA shells that contain no links
 - Zoomin Software API support: for documentation sites built on Zoomin
   (e.g. learn.jamf.com) fetches rich JSON content directly from the backend
-  API instead of scraping the SPA HTML shell
+  API instead of scraping the SPA HTML shell.  The API host is detected from
+  the embedded page config when present; for sites that load config
+  asynchronously via JavaScript (such as learn.jamf.com) a static fallback
+  mapping (_ZOOMIN_KNOWN_API_HOSTS) is used.  SPA shell pages that cannot be
+  resolved to real article content are skipped rather than stored.
 - Login/redirect detection: skips pages that redirect to a different domain
 - Optional topic_filter: uses the LLM to decide if a page is relevant before ingesting
 - Stores progress in a ScrapeJob row (status, pages_scraped, pages_found, error)
@@ -49,6 +53,13 @@ _SCRAPE_FETCH_CONCURRENCY = max(1, min(8, int(os.environ.get("SCRAPE_FETCH_CONCU
 # Matches Zoomin Software documentation page URLs:
 # /[locale]/bundle/{bundleId}/page/{topicFile}.html
 _ZOOMIN_PAGE_RE = re.compile(r"/bundle/([^/]+)/page/([^?#]+\.html)$", re.IGNORECASE)
+
+# Known Zoomin SPA domain → backend API hostname mapping.
+# Used as fallback when the API host cannot be detected from the page HTML
+# (e.g. when the app config is loaded asynchronously via JavaScript).
+_ZOOMIN_KNOWN_API_HOSTS: dict[str, str] = {
+    "learn.jamf.com": "learn-be.jamf.com",
+}
 
 # Login/auth URL paths to skip
 _LOGIN_PATH_RE = re.compile(r"/(login|signin|sign-in|auth|register|logout|sso)", re.IGNORECASE)
@@ -178,17 +189,31 @@ async def _fetch_candidate_page(
     html = resp.text
     text = _extract_text(html)
     zoomin_title = ""
+    topic_html_for_links: str | None = None
 
     if len(text) < 300:
         zoomin = await _try_zoomin_content(http, url, html)
         if zoomin:
             topic_html, zoomin_title = zoomin
             text = _extract_text(topic_html)
+            # Use the API-rendered topic HTML for link discovery so that
+            # inter-article links are followed during the crawl.
+            topic_html_for_links = topic_html
+        elif urlparse(url).netloc in _ZOOMIN_KNOWN_API_HOSTS:
+            # This is a SPA shell page on a known Zoomin domain (e.g. the
+            # homepage or a navigation page) that contains no article content.
+            # Skip it to avoid storing the generic loading-screen placeholder
+            # text in the knowledge base.
+            return {
+                "status": "skip",
+                "reason": "Zoomin SPA shell page without extractable content",
+            }
 
     if len(text) < 100:
         return {"status": "skip", "reason": f"low-content page ({len(text)} chars)"}
 
-    links = [link for link in _extract_links(html, url) if _same_domain(url, link)]
+    link_source_html = topic_html_for_links if topic_html_for_links is not None else html
+    links = [link for link in _extract_links(link_source_html, url) if _same_domain(url, link)]
 
     return {
         "status": "ok",
@@ -296,7 +321,8 @@ async def _try_zoomin_content(
 ) -> tuple[str, str] | None:
     """
     If the URL matches a Zoomin documentation page pattern AND the page HTML
-    contains a Zoomin config, fetch the article content via the backend JSON API.
+    contains a Zoomin config (or the domain is a known Zoomin host), fetch the
+    article content via the backend JSON API.
 
     Returns (article_html, title) or None if not applicable / API unreachable.
     """
@@ -305,13 +331,17 @@ async def _try_zoomin_content(
     if not m:
         return None
 
-    api_host = _detect_zoomin_api_host(page_html)
+    parsed = urlparse(url)
+    # Prefer the API host embedded in the page config; fall back to the
+    # static known-host mapping for sites (like learn.jamf.com) that load
+    # their config asynchronously via JavaScript.
+    api_host = _detect_zoomin_api_host(page_html) or _ZOOMIN_KNOWN_API_HOSTS.get(parsed.netloc)
     if not api_host:
         return None
 
     bundle, topic = m.group(1), m.group(2)
     api_url = f"https://{api_host}/api/bundle/{bundle}/page/{topic}"
-    origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+    origin = f"{parsed.scheme}://{parsed.netloc}"
 
     try:
         api_resp = await http.get(
