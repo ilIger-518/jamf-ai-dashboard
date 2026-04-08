@@ -31,6 +31,7 @@ class Device(Base):
 
     # Identity
     udid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    management_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     serial_number: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     asset_tag: Mapped[str | None] = mapped_column(String(128), nullable=True)
