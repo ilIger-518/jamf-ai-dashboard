@@ -23,6 +23,7 @@ from app.routers import (
     assets,
     auth,
     dashboard,
+    ddm,
     devices,
     health,
     knowledge,
@@ -205,6 +206,7 @@ def create_app() -> FastAPI:
     application.include_router(auth.router, prefix=API_PREFIX)
     application.include_router(servers.router, prefix=API_PREFIX)
     application.include_router(devices.router, prefix=API_PREFIX)
+    application.include_router(ddm.router, prefix=API_PREFIX)
     application.include_router(policies.router, prefix=API_PREFIX)
     application.include_router(patches.router, prefix=API_PREFIX)
     application.include_router(smart_groups.router, prefix=API_PREFIX)
