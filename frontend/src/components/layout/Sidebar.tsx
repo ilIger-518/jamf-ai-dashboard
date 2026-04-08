@@ -17,6 +17,7 @@ import {
   ArrowRightLeft,
   ChevronLeft,
   ChevronRight,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUiStore } from "@/store/uiStore";
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { href: "/smart-groups", label: "Smart Groups", icon: Users },
   { href: "/patches", label: "Patches", icon: Package },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
+  { href: "/ddm", label: "DDM Status", icon: Layers },
   { href: "/ai", label: "AI Assistant", icon: Bot },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen },
   { href: "/scripts", label: "Scripts", icon: FileCode2 },
