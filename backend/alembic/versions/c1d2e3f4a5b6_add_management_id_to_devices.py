@@ -26,7 +26,9 @@ def upgrade() -> None:
     if "devices" in tables:
         device_columns = {col["name"] for col in inspector.get_columns("devices")}
         if "management_id" not in device_columns:
-            op.add_column("devices", sa.Column("management_id", sa.String(length=64), nullable=True))
+            op.add_column(
+                "devices", sa.Column("management_id", sa.String(length=64), nullable=True)
+            )
 
         device_indexes = {idx["name"] for idx in inspector.get_indexes("devices")}
         if "ix_devices_management_id" not in device_indexes and "management_id" in {
