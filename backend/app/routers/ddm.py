@@ -11,6 +11,7 @@ import uuid
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import CurrentUser, DBSession
@@ -30,7 +31,7 @@ _TIMEOUT = 30.0
 # ---------------------------------------------------------------------------
 
 
-async def _get_server_and_token(db: object, server_id: uuid.UUID) -> tuple[JamfServer, str]:
+async def _get_server_and_token(db: AsyncSession, server_id: uuid.UUID) -> tuple[JamfServer, str]:
     """Return the JamfServer row and a fresh OAuth bearer token."""
     result = await db.execute(select(JamfServer).where(JamfServer.id == server_id))
     server = result.scalar_one_or_none()
@@ -155,7 +156,9 @@ async def get_ddm_device_status(
     raw = resp.json()
     status_items: list[dict] = []
     if isinstance(raw, dict):
-        status_items = raw.get("statusItems", raw.get("results", []))
+        fetched = raw.get("statusItems") or raw.get("results") or []
+        if isinstance(fetched, list):
+            status_items = fetched
     elif isinstance(raw, list):
         status_items = raw
 
