@@ -17,6 +17,7 @@ import {
   ArrowRightLeft,
   ChevronLeft,
   ChevronRight,
+  FolderSync,
   Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { href: "/scripts", label: "Scripts", icon: FileCode2 },
   { href: "/packages", label: "Packages", icon: Box },
   { href: "/migrator", label: "Migrator", icon: ArrowRightLeft },
+  { href: "/jamf-sync", label: "Jamf Sync", icon: FolderSync },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
