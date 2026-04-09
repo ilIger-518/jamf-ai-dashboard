@@ -22,50 +22,57 @@ async def get_stats(
     _: CurrentUser,
     server_id: uuid.UUID | None = Query(None),
 ) -> DashboardStats:
-    async def count(q) -> int:  # type: ignore[type-arg]
-        r = await db.execute(select(func.count()).select_from(q.subquery()))
-        return r.scalar_one()
-
-    def dev_q():
-        q = select(Device)
-        if server_id:
-            q = q.where(Device.server_id == server_id)
-        return q
-
-    def pol_q():
-        q = select(Policy)
-        if server_id:
-            q = q.where(Policy.server_id == server_id)
-        return q
-
-    def patch_q():
-        q = select(PatchTitle)
-        if server_id:
-            q = q.where(PatchTitle.server_id == server_id)
-        return q
-
-    def sg_q():
-        q = select(SmartGroup)
-        if server_id:
-            q = q.where(SmartGroup.server_id == server_id)
-        return q
-
-    total_devices = await count(dev_q())
-    managed_devices = await count(dev_q().where(Device.is_managed.is_(True)))
-    total_policies = await count(pol_q())
-    enabled_policies = await count(pol_q().where(Policy.enabled.is_(True)))
-    total_patches = await count(patch_q())
-
-    unpatched_q = select(func.sum(PatchTitle.unpatched_count))
+    # ── Combined device counts (one query) ─────────────────────────────────
+    device_q = select(
+        func.count().label("total"),
+        func.count().filter(Device.is_managed.is_(True)).label("managed"),
+    )
     if server_id:
-        unpatched_q = unpatched_q.where(PatchTitle.server_id == server_id)
-    unpatched_result = await db.execute(unpatched_q)
-    unpatched_count = unpatched_result.scalar_one() or 0
+        device_q = device_q.where(Device.server_id == server_id)
+    device_row = (await db.execute(device_q)).one()
+    total_devices: int = device_row.total
+    managed_devices: int = device_row.managed
 
-    total_smart_groups = await count(sg_q())
-    total_servers = await count(select(JamfServer))
-    active_servers = await count(select(JamfServer).where(JamfServer.is_active.is_(True)))
+    # ── Combined policy counts (one query) ─────────────────────────────────
+    policy_q = select(
+        func.count().label("total"),
+        func.count().filter(Policy.enabled.is_(True)).label("enabled"),
+    )
+    if server_id:
+        policy_q = policy_q.where(Policy.server_id == server_id)
+    policy_row = (await db.execute(policy_q)).one()
+    total_policies: int = policy_row.total
+    enabled_policies: int = policy_row.enabled
 
+    # ── Combined patch counts (one query) ──────────────────────────────────
+    patch_q = select(
+        func.count().label("total"),
+        func.coalesce(func.sum(PatchTitle.unpatched_count), 0).label("unpatched"),
+    )
+    if server_id:
+        patch_q = patch_q.where(PatchTitle.server_id == server_id)
+    patch_row = (await db.execute(patch_q)).one()
+    total_patches: int = patch_row.total
+    unpatched_count: int = patch_row.unpatched
+
+    # ── Smart group count ──────────────────────────────────────────────────
+    sg_q = select(func.count())
+    if server_id:
+        sg_q = sg_q.where(SmartGroup.server_id == server_id)
+    else:
+        sg_q = sg_q.select_from(SmartGroup)
+    total_smart_groups: int = (await db.execute(sg_q)).scalar_one()
+
+    # ── Combined server counts (one query) ─────────────────────────────────
+    server_q = select(
+        func.count().label("total"),
+        func.count().filter(JamfServer.is_active.is_(True)).label("active"),
+    )
+    server_row = (await db.execute(server_q)).one()
+    total_servers: int = server_row.total
+    active_servers: int = server_row.active
+
+    # ── OS distribution ────────────────────────────────────────────────────
     os_dist_q = (
         select(Device.os_version, func.count().label("cnt"))
         .where(Device.os_version.isnot(None))
@@ -75,9 +82,11 @@ async def get_stats(
     )
     if server_id:
         os_dist_q = os_dist_q.where(Device.server_id == server_id)
-    os_dist_result = await db.execute(os_dist_q)
-    os_distribution = [OsVersionCount(os_version=row[0], count=row[1]) for row in os_dist_result]
+    os_distribution = [
+        OsVersionCount(os_version=row[0], count=row[1]) for row in await db.execute(os_dist_q)
+    ]
 
+    # ── Top patch titles ───────────────────────────────────────────────────
     patch_sum_q = (
         select(PatchTitle.software_title, PatchTitle.patched_count, PatchTitle.unpatched_count)
         .order_by((PatchTitle.patched_count + PatchTitle.unpatched_count).desc())
@@ -85,10 +94,9 @@ async def get_stats(
     )
     if server_id:
         patch_sum_q = patch_sum_q.where(PatchTitle.server_id == server_id)
-    patch_result = await db.execute(patch_sum_q)
     top_patches = [
         PatchSummary(software_title=row[0], patched=row[1], unpatched=row[2])
-        for row in patch_result
+        for row in await db.execute(patch_sum_q)
     ]
 
     return DashboardStats(
