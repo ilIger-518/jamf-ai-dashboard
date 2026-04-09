@@ -745,7 +745,7 @@ async def _sync_policies_classic(
     )
 
     total_upserted = 0
-    batch_rows_p: list[dict] = []
+    batch_rows_policies: list[dict] = []
     for stub, detail in zip(valid_stubs, details, strict=False):
         jamf_id = int(stub.get("id", 0))
         if not jamf_id or detail is None:
@@ -766,7 +766,7 @@ async def _sync_policies_classic(
             if names:
                 scope_parts.append("Groups: " + ", ".join(names))
 
-        batch_rows_p.append(
+        batch_rows_policies.append(
             {
                 "jamf_id": jamf_id,
                 "name": general.get("name") or stub.get("name") or f"Policy {jamf_id}",
@@ -778,11 +778,11 @@ async def _sync_policies_classic(
             }
         )
 
-    if batch_rows_p:
+    if batch_rows_policies:
         created_count, updated_count = await _bulk_upsert_policies(
-            db_session, server.id, batch_rows_p
+            db_session, server.id, batch_rows_policies
         )
-        total_upserted = len(batch_rows_p)
+        total_upserted = len(batch_rows_policies)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
@@ -878,7 +878,7 @@ async def _sync_smart_groups(
     )
 
     total_upserted = 0
-    batch_rows_sg: list[dict] = []
+    batch_rows_smart_groups: list[dict] = []
     for stub, detail in zip(smart_stubs, details, strict=False):
         jamf_id = int(stub.get("id", 0))
         if not jamf_id or detail is None:
@@ -905,7 +905,7 @@ async def _sync_smart_groups(
         else:
             member_count = detail.get("size") or len(computers_raw)
 
-        batch_rows_sg.append(
+        batch_rows_smart_groups.append(
             {
                 "jamf_id": jamf_id,
                 "name": detail.get("name") or stub.get("name") or f"Group {jamf_id}",
@@ -914,11 +914,11 @@ async def _sync_smart_groups(
             }
         )
 
-    if batch_rows_sg:
+    if batch_rows_smart_groups:
         created_count, updated_count = await _bulk_upsert_smart_groups(
-            db_session, server.id, batch_rows_sg
+            db_session, server.id, batch_rows_smart_groups
         )
-        total_upserted = len(batch_rows_sg)
+        total_upserted = len(batch_rows_smart_groups)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, seen_ids)
@@ -986,7 +986,7 @@ async def _sync_patches_modern(
     created_count = 0
     updated_count = 0
 
-    batch_rows_pt: list[dict] = []
+    batch_rows_patch_titles: list[dict] = []
     for item in all_items:
         if not isinstance(item, dict):
             continue
@@ -995,7 +995,7 @@ async def _sync_patches_modern(
             continue
         enrolled = int(item.get("enrolledDeviceCount") or 0)
         installed = int(item.get("installedDeviceCount") or 0)
-        batch_rows_pt.append(
+        batch_rows_patch_titles.append(
             {
                 "jamf_id": jamf_id,
                 "software_title": item.get("softwareTitleName") or f"Title {jamf_id}",
@@ -1006,11 +1006,11 @@ async def _sync_patches_modern(
             }
         )
 
-    if batch_rows_pt:
+    if batch_rows_patch_titles:
         created_count, updated_count = await _bulk_upsert_patch_titles(
-            db_session, server.id, batch_rows_pt
+            db_session, server.id, batch_rows_patch_titles
         )
-        total_upserted = len(batch_rows_pt)
+        total_upserted = len(batch_rows_patch_titles)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
@@ -1050,12 +1050,12 @@ async def _sync_patches_classic(
     updated_count = 0
 
     total_upserted = 0
-    batch_rows_ptc: list[dict] = []
+    batch_rows_patch_titles_classic: list[dict] = []
     for stub in stubs:
         jamf_id = int(stub.get("id", 0))
         if not jamf_id:
             continue
-        batch_rows_ptc.append(
+        batch_rows_patch_titles_classic.append(
             {
                 "jamf_id": jamf_id,
                 "software_title": stub.get("name") or f"Title {jamf_id}",
@@ -1066,11 +1066,11 @@ async def _sync_patches_classic(
             }
         )
 
-    if batch_rows_ptc:
+    if batch_rows_patch_titles_classic:
         created_count, updated_count = await _bulk_upsert_patch_titles(
-            db_session, server.id, batch_rows_ptc
+            db_session, server.id, batch_rows_patch_titles_classic
         )
-        total_upserted = len(batch_rows_ptc)
+        total_upserted = len(batch_rows_patch_titles_classic)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
