@@ -15,10 +15,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.cache import get_redis
 from app.database import AsyncSessionLocal
@@ -120,25 +123,111 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
 
 
-async def _upsert_device(db_session, server_id, jamf_id: int, fields: dict) -> str:
-    existing = await db_session.execute(
-        select(Device).where(Device.jamf_id == jamf_id, Device.server_id == server_id)
-    )
-    devices = existing.scalars().all()
-    action = "updated"
-    if not devices:
-        device = Device(jamf_id=jamf_id, server_id=server_id)
-        db_session.add(device)
-        action = "created"
-    else:
-        device = devices[0]
-        for dup in devices[1:]:
-            await db_session.delete(dup)
+async def _bulk_upsert_devices(
+    db_session: Any,
+    server_id: Any,
+    rows: list[dict],
+) -> tuple[int, int]:
+    """Bulk-upsert devices using INSERT … ON CONFLICT DO UPDATE.
 
-    for attr, value in fields.items():
-        setattr(device, attr, value)
-    device.synced_at = datetime.now(UTC)
-    return action
+    Each dict in *rows* must contain a ``jamf_id`` key plus any Device fields
+    to set.  Returns ``(created_count, updated_count)`` using PostgreSQL's
+    ``xmax`` system column to distinguish newly inserted rows from updates.
+
+    Only the columns actually present in *rows* (plus ``synced_at``) are
+    included in the ON CONFLICT SET clause, so columns omitted by a given
+    sync strategy (e.g. ``asset_tag`` in v2, ``last_enrollment`` in v1) are
+    left untouched on conflict rather than overwritten with NULL.
+    """
+    if not rows:
+        return 0, 0
+    now = datetime.now(UTC)
+    values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
+    insert_stmt = pg_insert(Device).values(values)
+    # Build the SET dict from keys present in rows, never touch id/jamf_id/server_id.
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
+    upsert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=["jamf_id", "server_id"],
+        set_=update_dict,
+    ).returning(text("(xmax = 0)"))
+    result = await db_session.execute(upsert_stmt)
+    flags = [row[0] for row in result.fetchall()]
+    return sum(1 for f in flags if f), sum(1 for f in flags if not f)
+
+
+async def _bulk_upsert_policies(
+    db_session: Any,
+    server_id: Any,
+    rows: list[dict],
+) -> tuple[int, int]:
+    """Bulk-upsert policies; returns ``(created_count, updated_count)``."""
+    if not rows:
+        return 0, 0
+    now = datetime.now(UTC)
+    values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
+    insert_stmt = pg_insert(Policy).values(values)
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
+    upsert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=["jamf_id", "server_id"],
+        set_=update_dict,
+    ).returning(text("(xmax = 0)"))
+    result = await db_session.execute(upsert_stmt)
+    flags = [row[0] for row in result.fetchall()]
+    return sum(1 for f in flags if f), sum(1 for f in flags if not f)
+
+
+async def _bulk_upsert_smart_groups(
+    db_session: Any,
+    server_id: Any,
+    rows: list[dict],
+) -> tuple[int, int]:
+    """Bulk-upsert smart groups; returns ``(created_count, updated_count)``.
+
+    Only updates the columns present in *rows* (plus ``synced_at``), so
+    ``last_refreshed`` is never overwritten by the sync path.
+    """
+    if not rows:
+        return 0, 0
+    now = datetime.now(UTC)
+    values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
+    insert_stmt = pg_insert(SmartGroup).values(values)
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
+    upsert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=["jamf_id", "server_id"],
+        set_=update_dict,
+    ).returning(text("(xmax = 0)"))
+    result = await db_session.execute(upsert_stmt)
+    flags = [row[0] for row in result.fetchall()]
+    return sum(1 for f in flags if f), sum(1 for f in flags if not f)
+
+
+async def _bulk_upsert_patch_titles(
+    db_session: Any,
+    server_id: Any,
+    rows: list[dict],
+) -> tuple[int, int]:
+    """Bulk-upsert patch titles; returns ``(created_count, updated_count)``."""
+    if not rows:
+        return 0, 0
+    now = datetime.now(UTC)
+    values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
+    insert_stmt = pg_insert(PatchTitle).values(values)
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
+    upsert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=["jamf_id", "server_id"],
+        set_=update_dict,
+    ).returning(text("(xmax = 0)"))
+    result = await db_session.execute(upsert_stmt)
+    flags = [row[0] for row in result.fetchall()]
+    return sum(1 for f in flags if f), sum(1 for f in flags if not f)
 
 
 async def _purge_missing_by_jamf_id(db_session, model, server_id, seen_ids: set[int]) -> int:
@@ -185,6 +274,7 @@ async def _sync_computers_v2(
         if not results:
             break
 
+        page_rows: list[dict] = []
         for comp in results:
             # id may be int or string depending on Jamf version
             jamf_id = int(comp.get("id", 0))
@@ -197,11 +287,9 @@ async def _sync_computers_v2(
             location = comp.get("location") or {}
             mdm = general.get("mdmCapable") or {}
 
-            action = await _upsert_device(
-                db_session,
-                server.id,
-                jamf_id,
+            page_rows.append(
                 {
+                    "jamf_id": jamf_id,
                     "name": general.get("name") or comp.get("name") or f"Computer {jamf_id}",
                     "udid": comp.get("udid"),
                     "management_id": general.get("managementId"),
@@ -219,13 +307,13 @@ async def _sync_computers_v2(
                     "email": location.get("emailAddress"),
                     "department": location.get("department"),
                     "building": location.get("building"),
-                },
+                }
             )
-            if action == "created":
-                created_count += 1
-            else:
-                updated_count += 1
-            total_upserted += 1
+
+        batch_created, batch_updated = await _bulk_upsert_devices(db_session, server.id, page_rows)
+        created_count += batch_created
+        updated_count += batch_updated
+        total_upserted += len(page_rows)
 
         await db_session.flush()
 
@@ -277,17 +365,16 @@ async def _sync_computers_v1(
         if not results:
             break
 
+        page_rows = []
         for comp in results:
             jamf_id = int(comp.get("id", 0))
             if not jamf_id:
                 continue
             seen_ids.add(jamf_id)
 
-            action = await _upsert_device(
-                db_session,
-                server.id,
-                jamf_id,
+            page_rows.append(
                 {
+                    "jamf_id": jamf_id,
                     "name": comp.get("name") or f"Computer {jamf_id}",
                     "udid": comp.get("udid"),
                     "management_id": comp.get("managementId"),
@@ -304,13 +391,13 @@ async def _sync_computers_v1(
                     "department": comp.get("departmentName"),
                     "building": comp.get("buildingName"),
                     "site": (comp.get("site") or {}).get("name"),
-                },
+                }
             )
-            if action == "created":
-                created_count += 1
-            else:
-                updated_count += 1
-            total_upserted += 1
+
+        batch_created, batch_updated = await _bulk_upsert_devices(db_session, server.id, page_rows)
+        created_count += batch_created
+        updated_count += batch_updated
+        total_upserted += len(page_rows)
 
         await db_session.flush()
 
@@ -385,6 +472,7 @@ async def _sync_computers_classic(
     total_upserted = 0
     created_count = 0
     updated_count = 0
+    batch_rows: list[dict] = []
     for jamf_id, detail in zip(valid_ids, details, strict=False):
         if detail is None:
             continue
@@ -394,11 +482,9 @@ async def _sync_computers_classic(
         location = detail.get("location") or {}
         remote_mgmt = general.get("remote_management") or {}
 
-        action = await _upsert_device(
-            db_session,
-            server.id,
-            jamf_id,
+        batch_rows.append(
             {
+                "jamf_id": jamf_id,
                 "name": general.get("name") or f"Computer {jamf_id}",
                 "udid": general.get("udid"),
                 "serial_number": general.get("serial_number"),
@@ -418,13 +504,12 @@ async def _sync_computers_classic(
                 "email": location.get("email_address"),
                 "department": location.get("department"),
                 "building": location.get("building"),
-            },
+            }
         )
-        if action == "created":
-            created_count += 1
-        else:
-            updated_count += 1
-        total_upserted += 1
+
+    if batch_rows:
+        created_count, updated_count = await _bulk_upsert_devices(db_session, server.id, batch_rows)
+        total_upserted = len(batch_rows)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Device, server.id, seen_ids)
@@ -454,27 +539,6 @@ async def _sync_computers(
 # ---------------------------------------------------------------------------
 # Policy sync — Jamf Pro REST API (/api/v1/policies), Classic fallback
 # ---------------------------------------------------------------------------
-
-
-async def _upsert_policy(db_session, server_id, jamf_id: int, fields: dict) -> str:
-    existing = await db_session.execute(
-        select(Policy).where(Policy.jamf_id == jamf_id, Policy.server_id == server_id)
-    )
-    policies = existing.scalars().all()
-    action = "updated"
-    if not policies:
-        policy = Policy(jamf_id=jamf_id, server_id=server_id)
-        db_session.add(policy)
-        action = "created"
-    else:
-        policy = policies[0]
-        for dup in policies[1:]:
-            await db_session.delete(dup)
-
-    for attr, value in fields.items():
-        setattr(policy, attr, value)
-    policy.synced_at = datetime.now(UTC)
-    return action
 
 
 def _scope_description_from_modern(scope: dict) -> str | None:
@@ -574,6 +638,7 @@ async def _sync_policies_v1(
         *[_fetch_policy_detail_v1(client, base_url, token, pid, semaphore) for pid in stub_ids]
     )
 
+    batch_rows: list[dict] = []
     for stub_id, detail in zip(stub_ids, details, strict=False):
         jamf_id = int(stub_id)
         if not jamf_id:
@@ -586,11 +651,9 @@ async def _sync_policies_v1(
         general = src.get("general") or src  # v1 may be flat or nested
         scope = src.get("scope") or {}
 
-        action = await _upsert_policy(
-            db_session,
-            server.id,
-            jamf_id,
+        batch_rows.append(
             {
+                "jamf_id": jamf_id,
                 "name": general.get("name") or src.get("name") or f"Policy {jamf_id}",
                 "enabled": bool(general.get("enabled", src.get("enabled", True))),
                 "category": (general.get("category") or {}).get("name")
@@ -599,13 +662,14 @@ async def _sync_policies_v1(
                 "trigger": general.get("trigger") or src.get("trigger") or None,
                 "scope_description": _scope_description_from_modern(scope),
                 "payload_description": None,
-            },
+            }
         )
-        if action == "created":
-            created_count += 1
-        else:
-            updated_count += 1
-        total_upserted += 1
+
+    if batch_rows:
+        created_count, updated_count = await _bulk_upsert_policies(
+            db_session, server.id, batch_rows
+        )
+        total_upserted = len(batch_rows)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
@@ -683,6 +747,7 @@ async def _sync_policies_classic(
     )
 
     total_upserted = 0
+    batch_rows_policies: list[dict] = []
     for stub, detail in zip(valid_stubs, details, strict=False):
         jamf_id = int(stub.get("id", 0))
         if not jamf_id or detail is None:
@@ -703,24 +768,23 @@ async def _sync_policies_classic(
             if names:
                 scope_parts.append("Groups: " + ", ".join(names))
 
-        action = await _upsert_policy(
-            db_session,
-            server.id,
-            jamf_id,
+        batch_rows_policies.append(
             {
+                "jamf_id": jamf_id,
                 "name": general.get("name") or stub.get("name") or f"Policy {jamf_id}",
                 "enabled": bool(general.get("enabled", True)),
                 "category": (general.get("category") or {}).get("name") or None,
                 "trigger": general.get("trigger") or None,
                 "scope_description": "; ".join(scope_parts) if scope_parts else None,
                 "payload_description": None,
-            },
+            }
         )
-        if action == "created":
-            created_count += 1
-        else:
-            updated_count += 1
-        total_upserted += 1
+
+    if batch_rows_policies:
+        created_count, updated_count = await _bulk_upsert_policies(
+            db_session, server.id, batch_rows_policies
+        )
+        total_upserted = len(batch_rows_policies)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, Policy, server.id, seen_ids)
@@ -749,26 +813,6 @@ async def _sync_policies(
 # ---------------------------------------------------------------------------
 # Smart group sync — Classic API (/JSSResource/computergroups)
 # ---------------------------------------------------------------------------
-
-
-async def _upsert_smart_group(db_session, server_id, jamf_id: int, fields: dict) -> str:
-    existing = await db_session.execute(
-        select(SmartGroup).where(SmartGroup.jamf_id == jamf_id, SmartGroup.server_id == server_id)
-    )
-    groups = existing.scalars().all()
-    action = "updated"
-    if not groups:
-        sg = SmartGroup(jamf_id=jamf_id, server_id=server_id)
-        db_session.add(sg)
-        action = "created"
-    else:
-        sg = groups[0]
-        for dup in groups[1:]:
-            await db_session.delete(dup)
-    for attr, value in fields.items():
-        setattr(sg, attr, value)
-    sg.synced_at = datetime.now(UTC)
-    return action
 
 
 async def _fetch_smart_group_detail(
@@ -836,6 +880,7 @@ async def _sync_smart_groups(
     )
 
     total_upserted = 0
+    batch_rows_smart_groups: list[dict] = []
     for stub, detail in zip(smart_stubs, details, strict=False):
         jamf_id = int(stub.get("id", 0))
         if not jamf_id or detail is None:
@@ -862,21 +907,20 @@ async def _sync_smart_groups(
         else:
             member_count = detail.get("size") or len(computers_raw)
 
-        action = await _upsert_smart_group(
-            db_session,
-            server.id,
-            jamf_id,
+        batch_rows_smart_groups.append(
             {
+                "jamf_id": jamf_id,
                 "name": detail.get("name") or stub.get("name") or f"Group {jamf_id}",
                 "criteria": criteria if criteria else None,
                 "member_count": member_count,
-            },
+            }
         )
-        if action == "created":
-            created_count += 1
-        else:
-            updated_count += 1
-        total_upserted += 1
+
+    if batch_rows_smart_groups:
+        created_count, updated_count = await _bulk_upsert_smart_groups(
+            db_session, server.id, batch_rows_smart_groups
+        )
+        total_upserted = len(batch_rows_smart_groups)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, seen_ids)
@@ -889,26 +933,6 @@ async def _sync_smart_groups(
 # ---------------------------------------------------------------------------
 # Patch title sync — modern API first, Classic fallback
 # ---------------------------------------------------------------------------
-
-
-async def _upsert_patch_title(db_session, server_id, jamf_id: int, fields: dict) -> str:
-    existing = await db_session.execute(
-        select(PatchTitle).where(PatchTitle.jamf_id == jamf_id, PatchTitle.server_id == server_id)
-    )
-    patch_titles = existing.scalars().all()
-    action = "updated"
-    if not patch_titles:
-        pt = PatchTitle(jamf_id=jamf_id, server_id=server_id)
-        db_session.add(pt)
-        action = "created"
-    else:
-        pt = patch_titles[0]
-        for dup in patch_titles[1:]:
-            await db_session.delete(dup)
-    for attr, value in fields.items():
-        setattr(pt, attr, value)
-    pt.synced_at = datetime.now(UTC)
-    return action
 
 
 async def _sync_patches_modern(
@@ -964,6 +988,7 @@ async def _sync_patches_modern(
     created_count = 0
     updated_count = 0
 
+    batch_rows_patch_titles: list[dict] = []
     for item in all_items:
         if not isinstance(item, dict):
             continue
@@ -972,23 +997,22 @@ async def _sync_patches_modern(
             continue
         enrolled = int(item.get("enrolledDeviceCount") or 0)
         installed = int(item.get("installedDeviceCount") or 0)
-        action = await _upsert_patch_title(
-            db_session,
-            server.id,
-            jamf_id,
+        batch_rows_patch_titles.append(
             {
+                "jamf_id": jamf_id,
                 "software_title": item.get("softwareTitleName") or f"Title {jamf_id}",
                 "latest_version": item.get("targetPatchVersion") or None,
                 "current_version": item.get("targetPatchVersion") or None,
                 "patched_count": installed,
                 "unpatched_count": max(enrolled - installed, 0),
-            },
+            }
         )
-        if action == "created":
-            created_count += 1
-        else:
-            updated_count += 1
-        total_upserted += 1
+
+    if batch_rows_patch_titles:
+        created_count, updated_count = await _bulk_upsert_patch_titles(
+            db_session, server.id, batch_rows_patch_titles
+        )
+        total_upserted = len(batch_rows_patch_titles)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)
@@ -1028,27 +1052,27 @@ async def _sync_patches_classic(
     updated_count = 0
 
     total_upserted = 0
+    batch_rows_patch_titles_classic: list[dict] = []
     for stub in stubs:
         jamf_id = int(stub.get("id", 0))
         if not jamf_id:
             continue
-        action = await _upsert_patch_title(
-            db_session,
-            server.id,
-            jamf_id,
+        batch_rows_patch_titles_classic.append(
             {
+                "jamf_id": jamf_id,
                 "software_title": stub.get("name") or f"Title {jamf_id}",
                 "latest_version": stub.get("current_version") or None,
                 "current_version": stub.get("current_version") or None,
                 "patched_count": 0,
                 "unpatched_count": 0,
-            },
+            }
         )
-        if action == "created":
-            created_count += 1
-        else:
-            updated_count += 1
-        total_upserted += 1
+
+    if batch_rows_patch_titles_classic:
+        created_count, updated_count = await _bulk_upsert_patch_titles(
+            db_session, server.id, batch_rows_patch_titles_classic
+        )
+        total_upserted = len(batch_rows_patch_titles_classic)
 
     await db_session.flush()
     deleted = await _purge_missing_by_jamf_id(db_session, PatchTitle, server.id, seen_ids)

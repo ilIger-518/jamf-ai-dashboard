@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 
 class Policy(Base):
     __tablename__ = "policies"
+    __table_args__ = (
+        UniqueConstraint("jamf_id", "server_id", name="uq_policies_jamf_id_server_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     jamf_id: Mapped[int] = mapped_column(Integer, nullable=False)
