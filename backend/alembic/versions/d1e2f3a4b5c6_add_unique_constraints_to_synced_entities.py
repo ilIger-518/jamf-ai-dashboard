@@ -5,7 +5,7 @@ ties broken by row id) before adding the constraint so the migration is
 safe to run on a populated database.
 
 Revision ID: d1e2f3a4b5c6
-Revises: 1c7a8d2e4b55
+Revises: c1d2e3f4a5b6
 Create Date: 2026-04-09 15:00:00.000000
 """
 
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d1e2f3a4b5c6"
-down_revision: str | None = "1c7a8d2e4b55"
+down_revision: str | None = "c1d2e3f4a5b6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -72,8 +72,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+
     for table_name, constraint_name in reversed(_TABLES):
-        try:
+        if table_name not in existing_tables:
+            continue
+        existing_uqs = {uq["name"] for uq in inspector.get_unique_constraints(table_name)}
+        if constraint_name in existing_uqs:
             op.drop_constraint(constraint_name, table_name, type_="unique")
-        except Exception:  # noqa: BLE001
-            pass

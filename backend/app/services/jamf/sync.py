@@ -133,17 +133,21 @@ async def _bulk_upsert_devices(
     Each dict in *rows* must contain a ``jamf_id`` key plus any Device fields
     to set.  Returns ``(created_count, updated_count)`` using PostgreSQL's
     ``xmax`` system column to distinguish newly inserted rows from updates.
+
+    Only the columns actually present in *rows* (plus ``synced_at``) are
+    included in the ON CONFLICT SET clause, so columns omitted by a given
+    sync strategy (e.g. ``asset_tag`` in v2, ``last_enrollment`` in v1) are
+    left untouched on conflict rather than overwritten with NULL.
     """
     if not rows:
         return 0, 0
     now = datetime.now(UTC)
     values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
     insert_stmt = pg_insert(Device).values(values)
-    update_dict = {
-        c.name: insert_stmt.excluded[c.name]
-        for c in Device.__table__.c
-        if c.name not in ("id", "jamf_id", "server_id")
-    }
+    # Build the SET dict from keys present in rows, never touch id/jamf_id/server_id.
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
     upsert_stmt = insert_stmt.on_conflict_do_update(
         index_elements=["jamf_id", "server_id"],
         set_=update_dict,
@@ -164,11 +168,9 @@ async def _bulk_upsert_policies(
     now = datetime.now(UTC)
     values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
     insert_stmt = pg_insert(Policy).values(values)
-    update_dict = {
-        c.name: insert_stmt.excluded[c.name]
-        for c in Policy.__table__.c
-        if c.name not in ("id", "jamf_id", "server_id")
-    }
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
     upsert_stmt = insert_stmt.on_conflict_do_update(
         index_elements=["jamf_id", "server_id"],
         set_=update_dict,
@@ -183,17 +185,19 @@ async def _bulk_upsert_smart_groups(
     server_id: Any,
     rows: list[dict],
 ) -> tuple[int, int]:
-    """Bulk-upsert smart groups; returns ``(created_count, updated_count)``."""
+    """Bulk-upsert smart groups; returns ``(created_count, updated_count)``.
+
+    Only updates the columns present in *rows* (plus ``synced_at``), so
+    ``last_refreshed`` is never overwritten by the sync path.
+    """
     if not rows:
         return 0, 0
     now = datetime.now(UTC)
     values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
     insert_stmt = pg_insert(SmartGroup).values(values)
-    update_dict = {
-        c.name: insert_stmt.excluded[c.name]
-        for c in SmartGroup.__table__.c
-        if c.name not in ("id", "jamf_id", "server_id")
-    }
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
     upsert_stmt = insert_stmt.on_conflict_do_update(
         index_elements=["jamf_id", "server_id"],
         set_=update_dict,
@@ -214,11 +218,9 @@ async def _bulk_upsert_patch_titles(
     now = datetime.now(UTC)
     values = [{"id": uuid.uuid4(), "server_id": server_id, "synced_at": now, **row} for row in rows]
     insert_stmt = pg_insert(PatchTitle).values(values)
-    update_dict = {
-        c.name: insert_stmt.excluded[c.name]
-        for c in PatchTitle.__table__.c
-        if c.name not in ("id", "jamf_id", "server_id")
-    }
+    skip = {"id", "jamf_id", "server_id"}
+    update_keys = ({k for row in rows for k in row} | {"synced_at"}) - skip
+    update_dict = {k: insert_stmt.excluded[k] for k in update_keys}
     upsert_stmt = insert_stmt.on_conflict_do_update(
         index_elements=["jamf_id", "server_id"],
         set_=update_dict,
