@@ -145,11 +145,13 @@ if [[ "${OPT_FORCE_BUILD}" == "true" ]]; then
   info "Running full rebuild (code changed or --build flag)."
   docker compose build backend frontend
 else
-  # Build only if images are missing
+  # Build only if the named image for each app service is missing locally.
+  # We ask docker compose which image name it would produce for each service,
+  # then check whether that tag exists in the local image store.
   MISSING_IMAGES=()
   for svc in backend frontend; do
-    IMAGE=$(docker compose config --images 2>/dev/null | grep "/${svc}" || true)
-    if [[ -z "$(docker images -q "project-${svc}" 2>/dev/null)" ]]; then
+    # `docker compose images -q <svc>` returns the image ID if it exists, empty if not.
+    if [[ -z "$(docker compose images -q "${svc}" 2>/dev/null)" ]]; then
       MISSING_IMAGES+=("$svc")
     fi
   done
@@ -172,7 +174,12 @@ success "All services started."
 # ── Step 6: Wait for backend health ───────────────────────────────────────────
 header "Waiting for backend to become healthy…"
 
-BACKEND_HEALTH_URL="http://localhost:8000/api/v1/health"
+# Resolve the actual host port Docker mapped for the backend container (port 8000
+# inside the container).  If docker compose port returns nothing (e.g. remapped by
+# the updater override), fall back to 8000.
+BACKEND_PORT="$(docker compose port backend 8000 2>/dev/null | cut -d: -f2 || true)"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+BACKEND_HEALTH_URL="http://localhost:${BACKEND_PORT}/api/v1/health"
 MAX_WAIT=90
 WAITED=0
 HEALTHY=false
@@ -203,8 +210,8 @@ echo -e "${GREEN}  Jamf AI Dashboard is running!${RESET}"
 echo -e "${BOLD}══════════════════════════════════════════════════${RESET}"
 echo
 echo -e "  Frontend:   ${CYAN}http://localhost:3000${RESET}"
-echo -e "  Backend:    ${CYAN}http://localhost:8000${RESET}"
-echo -e "  Swagger:    ${CYAN}http://localhost:8000/docs${RESET}"
+echo -e "  Backend:    ${CYAN}http://localhost:${BACKEND_PORT}${RESET}"
+echo -e "  Swagger:    ${CYAN}http://localhost:${BACKEND_PORT}/docs${RESET}"
 echo -e "  Docs:       ${CYAN}http://localhost:8088${RESET}"
 echo
 echo -e "  Useful commands:"
