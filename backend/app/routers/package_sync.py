@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import tempfile
 import uuid
 from copy import deepcopy
@@ -170,10 +171,32 @@ async def _create_package_on_target(
     new_id: int | None = None
 
     def _parse_id(resp: httpx.Response) -> int | None:
+        # 1. JSON body: {"package": {"id": N}}
         try:
-            return int(resp.json().get("package", {}).get("id"))
-        except (KeyError, ValueError, TypeError):
-            return None
+            val = resp.json().get("package", {}).get("id")
+            if val is not None:
+                return int(val)
+        except (KeyError, ValueError, TypeError, Exception):  # noqa: BLE001
+            pass
+
+        # 2. Location header: …/packages/id/{N}
+        location = resp.headers.get("Location", "")
+        if location:
+            parts = location.rstrip("/").rsplit("/", 1)
+            try:
+                return int(parts[-1])
+            except (ValueError, IndexError):
+                pass
+
+        # 3. XML body: <id>N</id> (Classic API XML response)
+        m = re.search(r"<id>\s*(\d+)\s*</id>", resp.text)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                pass
+
+        return None
 
     json_headers = {
         "Authorization": f"Bearer {token}",
@@ -275,9 +298,7 @@ async def _transfer_package_file(
         async with httpx.AsyncClient(timeout=httpx.Timeout(3600)) as dl_client:
             async with dl_client.stream("GET", download_url, follow_redirects=True) as resp:
                 if resp.status_code != 200:
-                    raise RuntimeError(
-                        f"Failed to download package file: HTTP {resp.status_code}"
-                    )
+                    raise RuntimeError(f"Failed to download package file: HTTP {resp.status_code}")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pkg") as tmp:
                     tmp_path = tmp.name
                     total = 0
@@ -398,8 +419,7 @@ async def _copy_packages_to_server(
                         file_status = "transferred"
                     except (RuntimeError, httpx.HTTPError, OSError) as ft_exc:
                         file_status = "failed"
-                        file_message = str(ft_exc)
-                        item_logs.append(f"File transfer failed: {ft_exc}")
+                        # Log the full exception (may include URLs/tokens) server-side only.
                         logger.warning(
                             "Package file transfer failed",
                             extra={
@@ -408,6 +428,11 @@ async def _copy_packages_to_server(
                                 "error": str(ft_exc),
                             },
                         )
+                        # Return a sanitized message to the frontend (no URLs or tokens).
+                        raw_msg = str(ft_exc)
+                        sanitized = re.sub(r"https?://\S+", "<url redacted>", raw_msg)
+                        file_message = sanitized
+                        item_logs.append(f"File transfer failed: {sanitized}")
 
             results.append(
                 PackageSyncItemResult(
