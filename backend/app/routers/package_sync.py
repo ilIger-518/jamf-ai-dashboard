@@ -125,7 +125,9 @@ async def _fetch_package_detail(
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     if resp.status_code != 200:
-        raise RuntimeError(f"Failed to fetch package {package_id}: HTTP {resp.status_code}")
+        raise RuntimeError(
+            f"Failed to fetch package {package_id}: HTTP {resp.status_code} {resp.text[:300]}"
+        )
     data: dict[str, Any] = resp.json().get("package") or {}
     return data
 
@@ -260,7 +262,9 @@ async def _copy_packages_to_server(
             )
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            item_logs.append(f"Failure: {exc}")
+            item_logs.append(
+                f"Failure copying package #{package_id} to {target_server.name}: {exc}"
+            )
             logger.warning(
                 "Package sync item failed",
                 extra={
