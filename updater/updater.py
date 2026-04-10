@@ -382,8 +382,8 @@ def _get_allocated_host_ports() -> set[int]:
 
 
 def _find_free_port(start: int, allocated: set[int], end: int = 65535) -> int | None:
-    """Return the first port in [start, end] that is not in *allocated*."""
-    for port in range(start, end + 1):
+    """Return the first port in [start, min(start+1000, end)] that is not in *allocated*."""
+    for port in range(start, min(start + 1000, end) + 1):
         if port not in allocated:
             return port
     return None
@@ -511,7 +511,7 @@ def _ensure_ports_available(services: list[str]) -> None:
                 if free is None:
                     raise RuntimeError(
                         f"No free port available for service '{svc}' "
-                        f"(tried from {hp + 1} upward)"
+                        f"(tried {hp + 1}–{hp + 1000})"
                     )
                 _emit(
                     f"Port {hp} is already in use; "
