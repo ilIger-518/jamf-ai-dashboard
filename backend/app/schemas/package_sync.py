@@ -18,6 +18,7 @@ class PackageSyncRequest(BaseModel):
     target_server_ids: list[uuid.UUID] = Field(..., min_length=1)
     package_ids: list[int] = Field(..., min_length=1)
     skip_existing: bool = True
+    transfer_file: bool = False
 
     @model_validator(mode="after")
     def validate_targets_differ(self) -> "PackageSyncRequest":
@@ -32,6 +33,8 @@ class PackageSyncItemResult(BaseModel):
     status: Literal["created", "skipped", "failed"]
     message: str | None = None
     logs: list[str] = []
+    file_status: Literal["transferred", "skipped", "failed"] | None = None
+    file_message: str | None = None
 
 
 class PackageSyncServerResult(BaseModel):
