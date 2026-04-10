@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 import httpx
 import uvicorn
+import yaml
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
@@ -343,7 +344,7 @@ def _get_update_result_meta(result: str | None) -> tuple[str | None, str | None]
         "success": ("Update succeeded", "success"),
         "rolled_back": ("Update failed and was rolled back", "warning"),
         "failed": ("Update failed", "error"),
-        "failed_port_conflict": ("Update failed: host port 8000 is already in use", "error"),
+        "failed_port_conflict": ("Update failed: a required host port is still in use", "error"),
         "skipped_active_scrape": ("Auto-update skipped: active scrape job is running", "info"),
         "skipped_scrape_check_failed": ("Auto-update skipped: could not verify scrape job state", "warning"),
     }
@@ -354,8 +355,178 @@ def _contains_port_conflict(output: str) -> bool:
     lower = output.lower()
     return (
         "port is already allocated" in lower
-        or "bind for 0.0.0.0:8000 failed" in lower
+        or "address already in use" in lower
+        or "bind for 0.0.0.0:" in lower
     )
+
+
+def _get_allocated_host_ports() -> set[int]:
+    """Return the set of host TCP ports currently allocated by running Docker containers."""
+    code, out = _run(["docker", "ps", "--format", "{{.Ports}}"])
+    if code != 0 or not out:
+        return set()
+
+    allocated: set[int] = set()
+    for line in out.splitlines():
+        # Each line looks like: "0.0.0.0:8000->8000/tcp, :::8000->8000/tcp"
+        for segment in line.split(","):
+            segment = segment.strip()
+            if "->" in segment and ":" in segment:
+                host_part = segment.split("->")[0]
+                port_str = host_part.rsplit(":", 1)[-1]
+                try:
+                    allocated.add(int(port_str))
+                except ValueError:
+                    pass
+    return allocated
+
+
+def _find_free_port(start: int, allocated: set[int], end: int = 65535) -> int | None:
+    """Return the first port in [start, end] that is not in *allocated*."""
+    for port in range(start, end + 1):
+        if port not in allocated:
+            return port
+    return None
+
+
+def _get_compose_service_ports(services: list[str]) -> dict[str, list[int]]:
+    """
+    Parse docker-compose.yml and return a mapping of service → [host_ports].
+    Only the services listed in *services* are included.
+    """
+    compose_file = PROJECT_DIR / "docker-compose.yml"
+    if not compose_file.exists():
+        return {}
+
+    with open(compose_file) as f:
+        compose = yaml.safe_load(f)
+
+    result: dict[str, list[int]] = {}
+    all_services = compose.get("services", {}) if isinstance(compose, dict) else {}
+    for svc in services:
+        svc_config = all_services.get(svc, {}) or {}
+        port_entries = svc_config.get("ports", []) or []
+        host_ports: list[int] = []
+        for entry in port_entries:
+            entry_str = str(entry).strip()
+            # Possible formats:
+            #   "8000:8000", "0.0.0.0:8000:8000", "8000:8000/tcp", plain "8000"
+            if ":" in entry_str:
+                parts = entry_str.split(":")
+                # Take the second-to-last part as host port (last is container[:proto])
+                host_str = parts[-2].split("/")[0]
+                try:
+                    host_ports.append(int(host_str))
+                except ValueError:
+                    pass
+            else:
+                try:
+                    host_ports.append(int(entry_str.split("/")[0]))
+                except ValueError:
+                    pass
+        if host_ports:
+            result[svc] = host_ports
+    return result
+
+
+def _write_port_override(port_map: dict[str, dict[int, int]]) -> None:
+    """
+    Write docker-compose.override.yml remapping host ports.
+
+    port_map: { service_name: { old_host_port: new_host_port } }
+    """
+    compose_file = PROJECT_DIR / "docker-compose.yml"
+    if not compose_file.exists():
+        return
+
+    with open(compose_file) as f:
+        compose = yaml.safe_load(f)
+
+    override: dict = {"services": {}}
+    all_services = (compose.get("services", {}) or {}) if isinstance(compose, dict) else {}
+
+    for svc, remaps in port_map.items():
+        svc_config = all_services.get(svc, {}) or {}
+        new_ports: list[str] = []
+        for entry in svc_config.get("ports", []) or []:
+            entry_str = str(entry).strip()
+            if ":" in entry_str:
+                parts = entry_str.split(":")
+                # "ip:host:container" or "host:container"
+                host_str_raw = parts[-2]
+                host_str = host_str_raw.split("/")[0]
+                try:
+                    old_host = int(host_str)
+                    new_host = remaps.get(old_host, old_host)
+                    # Rebuild, preserving leading parts (ip prefix) and trailing part
+                    rebuilt = ":".join(parts[:-2] + [str(new_host), parts[-1]])
+                    new_ports.append(rebuilt)
+                except ValueError:
+                    new_ports.append(entry_str)
+            else:
+                try:
+                    old_host = int(entry_str.split("/")[0])
+                    new_host = remaps.get(old_host, old_host)
+                    new_ports.append(str(new_host))
+                except ValueError:
+                    new_ports.append(entry_str)
+        if new_ports:
+            override["services"][svc] = {"ports": new_ports}
+
+    override_file = PROJECT_DIR / "docker-compose.override.yml"
+    with open(override_file, "w") as fh:
+        yaml.dump(override, fh, default_flow_style=False)
+
+
+def _remove_port_override() -> None:
+    """Delete docker-compose.override.yml if it exists."""
+    override_file = PROJECT_DIR / "docker-compose.override.yml"
+    try:
+        override_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _ensure_ports_available(services: list[str]) -> None:
+    """
+    For each service in *services*, check whether its desired host port is
+    currently allocated by another Docker container.  If so, find the next
+    free port and write a docker-compose.override.yml that remaps it.
+
+    If all ports are free the override file is removed so that the canonical
+    docker-compose.yml takes effect.
+    """
+    desired = _get_compose_service_ports(services)
+    if not desired:
+        _remove_port_override()
+        return
+
+    allocated = _get_allocated_host_ports()
+    port_remaps: dict[str, dict[int, int]] = {}
+
+    for svc, host_ports in desired.items():
+        for hp in host_ports:
+            if hp in allocated:
+                free = _find_free_port(hp + 1, allocated)
+                if free is None:
+                    raise RuntimeError(
+                        f"No free port available for service '{svc}' "
+                        f"(tried from {hp + 1} upward)"
+                    )
+                _emit(
+                    f"Port {hp} is already in use; "
+                    f"remapping '{svc}' host port {hp} → {free}"
+                )
+                port_remaps.setdefault(svc, {})[hp] = free
+                # Add the newly chosen port to allocated so subsequent services
+                # don't pick the same one.
+                allocated.add(free)
+
+    if port_remaps:
+        _write_port_override(port_remaps)
+        _emit(f"Wrote docker-compose.override.yml with port remaps: {port_remaps}")
+    else:
+        _remove_port_override()
 
 
 def _get_active_scrape_job_count() -> int | None:
@@ -619,13 +790,16 @@ async def apply_update(auto_triggered: bool = False) -> None:
         if code != 0:
             raise RuntimeError(f"Build failed: {out}")
 
-        # 3. docker compose up -d
+        # 3. Check host ports; remap to free ports if any are already in use
+        _ensure_ports_available(APP_SERVICES)
+
+        # 4. docker compose up -d
         code, out = _run(["docker", "compose", "up", "-d"] + APP_SERVICES)
         _emit(f"docker compose up -d → exit={code}\n{out}")
         if code != 0:
             raise RuntimeError(f"docker compose up failed: {out}")
 
-        # 4. health check
+        # 5. health check
         _emit(f"Waiting up to {ROLLBACK_TIMEOUT} s for health check …")
         healthy = await _wait_for_health()
         if not healthy:
@@ -636,12 +810,14 @@ async def apply_update(auto_triggered: bool = False) -> None:
         _state["last_update_result"] = "success"
         _state["last_update_at"]    = datetime.now(timezone.utc).isoformat()
         _emit("Update succeeded ✓")
+        _remove_port_override()
 
     except RuntimeError as exc:
         _emit(f"Update failed: {exc} — rolling back to {prev_commit}")
+        _remove_port_override()
 
         if _contains_port_conflict(str(exc)):
-            _emit("Detected port 8000 conflict; restoring git state without restart rollback")
+            _emit("Detected port conflict; restoring git state without restart rollback")
             rc, out = _run(["git", "reset", "--hard", prev_commit])
             _emit(f"git reset --hard → exit={rc}\n{out}")
             _state["current_commit"] = prev_commit
