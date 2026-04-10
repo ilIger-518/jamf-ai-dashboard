@@ -98,5 +98,6 @@ ManageServersUser = Annotated[User, Depends(require_permission("servers.manage")
 ManageServerSyncUser = Annotated[User, Depends(require_permission("servers.sync"))]
 ManageKnowledgeUser = Annotated[User, Depends(require_permission("knowledge.manage"))]
 ManageMigratorUser = Annotated[User, Depends(require_permission("migrator.manage"))]
+ManagePackageSyncUser = Annotated[User, Depends(require_permission("package_sync.manage"))]
 ManageUsersUser = Annotated[User, Depends(require_permission("users.manage"))]
 ManageRolesUser = Annotated[User, Depends(require_permission("roles.manage"))]

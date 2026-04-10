@@ -29,6 +29,7 @@ from app.routers import (
     knowledge,
     logs,
     migrator,
+    package_sync,
     patches,
     policies,
     servers,
@@ -215,6 +216,7 @@ def create_app() -> FastAPI:
     application.include_router(knowledge.router, prefix=API_PREFIX)
     application.include_router(logs.router, prefix=API_PREFIX)
     application.include_router(migrator.router, prefix=API_PREFIX)
+    application.include_router(package_sync.router, prefix=API_PREFIX)
     application.include_router(users.router, prefix=API_PREFIX)
     application.include_router(ai.router, prefix=API_PREFIX)
 
