@@ -1,13 +1,16 @@
 """Package record synchronisation router.
 
 Copies package metadata (records) from one Jamf Pro server to one or more
-target servers using the Classic API.  The actual package file stored on a
-distribution point must be moved separately (e.g. via Jamf Sync).
+target servers using the Classic API, and optionally transfers the actual
+package file via the Jamf Pro v1 JDCS2 API (download-url + upload).
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import tempfile
 import uuid
 from copy import deepcopy
 from typing import Annotated, Any
@@ -156,9 +159,21 @@ async def _create_package_on_target(
     base_url: str,
     token: str,
     payload: dict[str, Any],
-) -> list[str]:
+) -> tuple[list[str], int | None]:
+    """Create a package record on target.
+
+    Returns ``(logs, new_package_id)``.  *new_package_id* is ``None`` when the
+    ID could not be parsed from the response (file transfer will be skipped).
+    """
     endpoint = f"{base_url}/JSSResource/packages/id/0"
     logs: list[str] = []
+    new_id: int | None = None
+
+    def _parse_id(resp: httpx.Response) -> int | None:
+        try:
+            return int(resp.json().get("package", {}).get("id"))
+        except (KeyError, ValueError, TypeError):
+            return None
 
     json_headers = {
         "Authorization": f"Bearer {token}",
@@ -172,7 +187,8 @@ async def _create_package_on_target(
         resp = await client.post(candidate, headers=json_headers, json={"package": payload})
         if resp.status_code in (200, 201):
             logs.append(f"JSON create succeeded: HTTP {resp.status_code}")
-            return logs
+            new_id = _parse_id(resp)
+            return logs, new_id
         logs.append(f"JSON create failed: HTTP {resp.status_code}")
         if resp.status_code != 415:
             raise RuntimeError(f"Package create failed: HTTP {resp.status_code} {resp.text[:300]}")
@@ -189,7 +205,8 @@ async def _create_package_on_target(
         resp = await client.post(candidate, headers=xml_headers, content=xml_body)
         if resp.status_code in (200, 201):
             logs.append(f"XML create succeeded: HTTP {resp.status_code}")
-            return logs
+            new_id = _parse_id(resp)
+            return logs, new_id
         logs.append(f"XML create failed: HTTP {resp.status_code}")
         if resp.status_code != 415:
             break
@@ -197,6 +214,100 @@ async def _create_package_on_target(
     raise RuntimeError(
         f"Package create failed after all attempts: HTTP {resp.status_code} {resp.text[:300]}"
     )
+
+
+async def _get_package_download_url(
+    base_url: str,
+    token: str,
+    package_id: int,
+) -> str:
+    """Return the JDCS2 pre-signed download URL for a package file.
+
+    Uses a dedicated client because this is a long-running call that sits
+    outside the main sync client's timeout budget.
+    """
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.get(
+            f"{base_url}/api/v1/packages/{package_id}/download-url",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            f"Failed to get download URL for package #{package_id}: "
+            f"HTTP {resp.status_code} — server may not support JDCS2 file API"
+        )
+    data = resp.json()
+    url = data.get("downloadUrl") or data.get("download_url")
+    if not url:
+        raise RuntimeError(f"No download URL in response for package #{package_id}")
+    return str(url)
+
+
+async def _transfer_package_file(
+    *,
+    source_base_url: str,
+    source_token: str,
+    source_package_id: int,
+    target_base_url: str,
+    target_token: str,
+    target_package_id: int,
+    filename: str,
+) -> list[str]:
+    """Download the package binary from *source* and upload it to *target*.
+
+    Uses the Jamf Pro v1 JDCS2 endpoints:
+      - ``GET  /api/v1/packages/{id}/download-url``  (source)
+      - ``POST /api/v1/packages/{id}/upload``         (target)
+
+    The file is streamed to a temporary file on disk to avoid loading large
+    packages entirely into memory.
+    """
+    logs: list[str] = []
+
+    logs.append(f"Fetching JDCS2 download URL for source package #{source_package_id}")
+    download_url = await _get_package_download_url(source_base_url, source_token, source_package_id)
+    logs.append("Got download URL")
+
+    tmp_path: str | None = None
+    try:
+        # Stream-download to a temporary file
+        logs.append("Downloading package file from source …")
+        async with httpx.AsyncClient(timeout=httpx.Timeout(3600)) as dl_client:
+            async with dl_client.stream("GET", download_url, follow_redirects=True) as resp:
+                if resp.status_code != 200:
+                    raise RuntimeError(
+                        f"Failed to download package file: HTTP {resp.status_code}"
+                    )
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pkg") as tmp:
+                    tmp_path = tmp.name
+                    total = 0
+                    async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
+                        await asyncio.to_thread(tmp.write, chunk)
+                        total += len(chunk)
+        logs.append(f"Downloaded {total:,} bytes")
+
+        # Upload from temp file to target
+        logs.append(f"Uploading package file to target (package #{target_package_id}) …")
+        async with httpx.AsyncClient(timeout=httpx.Timeout(3600)) as ul_client:
+            with open(tmp_path, "rb") as fh:
+                upload_resp = await ul_client.post(
+                    f"{target_base_url}/api/v1/packages/{target_package_id}/upload",
+                    headers={"Authorization": f"Bearer {target_token}"},
+                    files={"file": (filename, fh, "application/octet-stream")},
+                )
+        if upload_resp.status_code not in (200, 201):
+            raise RuntimeError(
+                f"Upload failed: HTTP {upload_resp.status_code} {upload_resp.text[:300]}"
+            )
+        logs.append(f"Package file uploaded successfully: HTTP {upload_resp.status_code}")
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    return logs
 
 
 async def _copy_packages_to_server(
@@ -207,8 +318,9 @@ async def _copy_packages_to_server(
     target_server: JamfServer,
     package_ids: list[int],
     skip_existing: bool,
+    transfer_file: bool,
 ) -> PackageSyncServerResult:
-    """Copy the selected package records to a single target server."""
+    """Copy the selected package records (and optionally files) to a single target server."""
     target_base_url = target_server.url.rstrip("/")
     target_token = await _get_oauth_token(
         client,
@@ -224,14 +336,21 @@ async def _copy_packages_to_server(
 
     for package_id in package_ids:
         item_logs: list[str] = [f"Begin copy for package #{package_id}"]
+        file_status: str | None = None
+        file_message: str | None = None
+
         try:
             detail = await _fetch_package_detail(client, source_base_url, source_token, package_id)
             name = str(detail.get("name") or f"Package {package_id}")
+            filename = str(detail.get("filename") or detail.get("file_name") or name)
             item_logs.append(f"Fetched source package: {name}")
 
             if skip_existing and name in existing_names:
                 skipped += 1
                 item_logs.append("Skipped: package with same name already exists on target")
+                if transfer_file:
+                    file_status = "skipped"
+                    file_message = "File transfer skipped — record already existed on target"
                 results.append(
                     PackageSyncItemResult(
                         package_id=package_id,
@@ -239,25 +358,65 @@ async def _copy_packages_to_server(
                         status="skipped",
                         message="Already exists on target",
                         logs=item_logs,
+                        file_status=file_status,
+                        file_message=file_message,
                     )
                 )
                 continue
 
             payload = _strip_package_nonportable_fields(deepcopy(detail))
 
-            create_logs = await _create_package_on_target(
+            create_logs, new_target_id = await _create_package_on_target(
                 client, target_base_url, target_token, payload
             )
             item_logs.extend(create_logs)
             created += 1
             existing_names.add(name)
             item_logs.append("Package record copied successfully")
+
+            # Optionally transfer the actual package binary via JDCS2
+            if transfer_file:
+                if new_target_id is None:
+                    file_status = "failed"
+                    file_message = (
+                        "Could not determine new package ID from create response; "
+                        "file transfer skipped"
+                    )
+                    item_logs.append(f"File transfer skipped: {file_message}")
+                else:
+                    try:
+                        ft_logs = await _transfer_package_file(
+                            source_base_url=source_base_url,
+                            source_token=source_token,
+                            source_package_id=package_id,
+                            target_base_url=target_base_url,
+                            target_token=target_token,
+                            target_package_id=new_target_id,
+                            filename=filename,
+                        )
+                        item_logs.extend(ft_logs)
+                        file_status = "transferred"
+                    except (RuntimeError, httpx.HTTPError, OSError) as ft_exc:
+                        file_status = "failed"
+                        file_message = str(ft_exc)
+                        item_logs.append(f"File transfer failed: {ft_exc}")
+                        logger.warning(
+                            "Package file transfer failed",
+                            extra={
+                                "package_id": package_id,
+                                "target_server_id": str(target_server.id),
+                                "error": str(ft_exc),
+                            },
+                        )
+
             results.append(
                 PackageSyncItemResult(
                     package_id=package_id,
                     name=name,
                     status="created",
                     logs=item_logs,
+                    file_status=file_status,
+                    file_message=file_message,
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -389,6 +548,7 @@ async def copy_packages(
                 target_server=target,
                 package_ids=body.package_ids,
                 skip_existing=body.skip_existing,
+                transfer_file=body.transfer_file,
             )
             server_results.append(result)
             logger.info(

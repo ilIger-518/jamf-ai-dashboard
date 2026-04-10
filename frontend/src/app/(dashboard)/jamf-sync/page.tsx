@@ -33,6 +33,8 @@ interface PackageSyncItemResult {
   status: "created" | "skipped" | "failed";
   message: string | null;
   logs: string[];
+  file_status: "transferred" | "skipped" | "failed" | null;
+  file_message: string | null;
 }
 
 interface PackageSyncServerResult {
@@ -54,6 +56,7 @@ export default function JamfSyncPage() {
   const [targetServerIds, setTargetServerIds] = useState<string[]>([]);
   const [selectedPackageIds, setSelectedPackageIds] = useState<number[]>([]);
   const [skipExisting, setSkipExisting] = useState(true);
+  const [transferFile, setTransferFile] = useState(false);
   const [lastResult, setLastResult] = useState<PackageSyncResponse | null>(null);
   const [selectedItemResult, setSelectedItemResult] = useState<PackageSyncItemResult | null>(null);
 
@@ -87,6 +90,7 @@ export default function JamfSyncPage() {
           target_server_ids: targetServerIds,
           package_ids: selectedPackageIds,
           skip_existing: skipExisting,
+          transfer_file: transferFile,
         })
         .then((r) => r.data),
     onSuccess: (data) => {
@@ -222,12 +226,23 @@ export default function JamfSyncPage() {
             />
             Skip packages that already exist on target
           </label>
+          <label className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={transferFile}
+              onChange={(e) => setTransferFile(e.target.checked)}
+            />
+            Also transfer package file (requires JDCS2)
+          </label>
         </div>
 
-        <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-          This copies package <strong>records</strong> (metadata) only. Move the actual package
-          file between distribution points separately using Jamf Sync or JDCS2.
-        </p>
+        {!transferFile && (
+          <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+            Only package <strong>records</strong> (metadata) will be copied. Enable{" "}
+            <em>Also transfer package file</em> to also move the binary via the Jamf Pro v1 JDCS2
+            API, or transfer files manually using Jamf Admin / Jamf Sync.
+          </p>
+        )}
       </div>
 
       {/* Package list */}
@@ -368,6 +383,21 @@ export default function JamfSyncPage() {
                       {r.status === "failed" && <XCircle className="h-3 w-3" />}
                       {r.status}
                     </span>
+                    {r.file_status && (
+                      <span
+                        className={cn(
+                          "mr-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs",
+                          r.file_status === "transferred" &&
+                            "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+                          r.file_status === "skipped" &&
+                            "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+                          r.file_status === "failed" &&
+                            "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+                        )}
+                      >
+                        file: {r.file_status}
+                      </span>
+                    )}
                     <span className="font-medium text-gray-900 dark:text-white">{r.name}</span>
                     {r.message && (
                       <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
@@ -422,9 +452,29 @@ export default function JamfSyncPage() {
                 >
                   {selectedItemResult.status}
                 </span>
+                {selectedItemResult.file_status && (
+                  <span
+                    className={cn(
+                      "ml-2 rounded px-1.5 py-0.5 text-xs",
+                      selectedItemResult.file_status === "transferred" &&
+                        "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+                      selectedItemResult.file_status === "skipped" &&
+                        "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+                      selectedItemResult.file_status === "failed" &&
+                        "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+                    )}
+                  >
+                    file: {selectedItemResult.file_status}
+                  </span>
+                )}
                 {selectedItemResult.message && (
                   <p className="mt-2 whitespace-pre-wrap rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300">
                     {selectedItemResult.message}
+                  </p>
+                )}
+                {selectedItemResult.file_message && (
+                  <p className="mt-2 whitespace-pre-wrap rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
+                    {selectedItemResult.file_message}
                   </p>
                 )}
               </div>
