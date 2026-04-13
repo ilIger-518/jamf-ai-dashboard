@@ -25,6 +25,7 @@ READONLY_PRIVILEGES: list[str] = [
     "Read Buildings",
     "Read Sites",
     "Read Scripts",
+    "Read Packages",
     "Read Computer Extension Attributes",
     "Read Mobile Device Extension Attributes",
     "Read Patch Management Software Titles",
