@@ -59,10 +59,10 @@ async def get_current_user(
 
 
 def get_user_permissions(current_user: User) -> set[str]:
-    if current_user.role and current_user.role.permissions:
-        return set(current_user.role.permissions)
     if current_user.is_admin:
         return set(ALL_PERMISSIONS)
+    if current_user.role and current_user.role.permissions:
+        return set(current_user.role.permissions)
     return set()
 
 

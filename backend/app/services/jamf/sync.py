@@ -292,7 +292,7 @@ async def _sync_computers_v2(
                     "jamf_id": jamf_id,
                     "name": general.get("name") or comp.get("name") or f"Computer {jamf_id}",
                     "udid": comp.get("udid"),
-                    "management_id": general.get("managementId"),
+                    "management_id": comp.get("managementId") or general.get("managementId"),
                     "serial_number": comp.get("serialNumber"),
                     "model": hardware.get("model"),
                     "os_version": hardware.get("osVersion"),
