@@ -921,9 +921,11 @@ async def _sync_smart_groups(
             comp_list = computers_raw.get("computer") or []
             if isinstance(comp_list, dict):
                 comp_list = [comp_list]
-            member_count = int(computers_raw.get("size") or len(comp_list))
+            size = computers_raw.get("size")
+            member_count = int(size if size is not None else len(comp_list))
         else:
-            member_count = int(detail.get("size") or len(computers_raw))
+            size = detail.get("size")
+            member_count = int(size if size is not None else len(computers_raw))
 
         batch_rows_smart_groups.append(
             {
