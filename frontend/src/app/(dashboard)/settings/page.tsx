@@ -44,6 +44,7 @@ interface SyncObjectSummary {
   created: number;
   updated: number;
   deleted: number;
+  warning?: string;
 }
 
 interface ServerSyncResult {
@@ -1259,6 +1260,7 @@ const READONLY_PRIVILEGES = [
   "Read Smart Mobile Device Groups", "Read Static Mobile Device Groups",
   "Read Policies", "Read Categories",
   "Read Departments", "Read Buildings", "Read Sites", "Read Scripts",
+  "Read Packages",
   "Read Computer Extension Attributes", "Read Mobile Device Extension Attributes",
   "Read Patch Management Software Titles",
   "Read Patch Policies", "Read Advanced Computer Searches",
@@ -2321,12 +2323,21 @@ export default function SettingsPage() {
                       if (result.patch_titles) {
                         parts.push(`Patches c${result.patch_titles.created}/u${result.patch_titles.updated}/d${result.patch_titles.deleted}`);
                       }
-                      if (parts.length === 0) return null;
+                      if (parts.length === 0 && !result.smart_groups?.warning) return null;
 
                       return (
-                        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                          Last result: {parts.join(" • ")}
-                        </p>
+                        <>
+                          {parts.length > 0 && (
+                            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                              Last result: {parts.join(" • ")}
+                            </p>
+                          )}
+                          {result.smart_groups?.warning && (
+                            <p className="mt-0.5 text-xs text-yellow-600 dark:text-yellow-400">
+                              ⚠ {result.smart_groups.warning}
+                            </p>
+                          )}
+                        </>
                       );
                     })()}
                   </div>

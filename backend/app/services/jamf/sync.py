@@ -487,6 +487,7 @@ async def _sync_computers_classic(
                 "jamf_id": jamf_id,
                 "name": general.get("name") or f"Computer {jamf_id}",
                 "udid": general.get("udid"),
+                "management_id": general.get("management_id") or general.get("managementId"),
                 "serial_number": general.get("serial_number"),
                 "asset_tag": general.get("asset_tag") or None,
                 "model": hardware.get("model"),
@@ -839,16 +840,33 @@ async def _fetch_smart_group_detail(
 
 async def _sync_smart_groups(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> tuple[int, int, int]:
-    """Sync computer smart groups via the Classic API."""
+) -> tuple[int, int, int, str | None]:
+    """Sync computer smart groups via the Classic API.
+
+    Returns ``(created, updated, deleted, warning)`` where *warning* is a
+    human-readable string when the endpoint was unreachable / refused auth,
+    or ``None`` on success.
+    """
     base_url = server.url
     resp = await client.get(
         f"{base_url}/JSSResource/computergroups",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
     if resp.status_code != 200:
-        logger.warning("GET /JSSResource/computergroups returned %d — skipping", resp.status_code)
-        return 0, 0, 0
+        warning = (
+            f"Smart group sync skipped: GET /JSSResource/computergroups returned "
+            f"HTTP {resp.status_code}. Ensure the API client has the "
+            f"'Read Smart Computer Groups' privilege and that the Jamf Pro version "
+            f"supports OAuth for the Classic API (10.35+)."
+        )
+        logger.warning(
+            "GET /JSSResource/computergroups returned %d on %s — smart group sync skipped. "
+            "Ensure the API client has 'Read Smart Computer Groups' privilege and that "
+            "the Jamf Pro version supports OAuth for the Classic API (10.35+).",
+            resp.status_code,
+            base_url,
+        )
+        return 0, 0, 0, warning
 
     raw = resp.json()
     # Response is either {"computer_groups": [...]} or {"computer_groups": {"computer_group": [...]}}
@@ -864,7 +882,7 @@ async def _sync_smart_groups(
         logger.info("No smart groups found on %s", base_url)
         deleted = await _purge_missing_by_jamf_id(db_session, SmartGroup, server.id, set())
         logger.info("smart group sync: 0 groups from %s (deleted stale: %d)", base_url, deleted)
-        return 0, 0, deleted
+        return 0, 0, deleted, None
 
     seen_ids = {int(g["id"]) for g in smart_stubs if g.get("id")}
     created_count = 0
@@ -903,9 +921,9 @@ async def _sync_smart_groups(
             comp_list = computers_raw.get("computer") or []
             if isinstance(comp_list, dict):
                 comp_list = [comp_list]
-            member_count = detail.get("size") or len(comp_list)
+            member_count = int(computers_raw.get("size") or len(comp_list))
         else:
-            member_count = detail.get("size") or len(computers_raw)
+            member_count = int(detail.get("size") or len(computers_raw))
 
         batch_rows_smart_groups.append(
             {
@@ -927,7 +945,7 @@ async def _sync_smart_groups(
     logger.info(
         "smart group sync: %d groups from %s (deleted stale: %d)", total_upserted, base_url, deleted
     )
-    return created_count, updated_count, deleted
+    return created_count, updated_count, deleted, None
 
 
 # ---------------------------------------------------------------------------
@@ -1127,7 +1145,7 @@ async def sync_server(server_id: str) -> None:
                 policy_created, policy_updated, policy_deleted = await _sync_policies(
                     db, server, http, token
                 )
-                sg_created, sg_updated, sg_deleted = await _sync_smart_groups(
+                sg_created, sg_updated, sg_deleted, sg_warning = await _sync_smart_groups(
                     db, server, http, token
                 )
                 patch_created, patch_updated, patch_deleted = await _sync_patches(
@@ -1157,6 +1175,7 @@ async def sync_server(server_id: str) -> None:
                         "created": sg_created,
                         "updated": sg_updated,
                         "deleted": sg_deleted,
+                        **({"warning": sg_warning} if sg_warning else {}),
                     },
                     "patch_titles": {
                         "created": patch_created,

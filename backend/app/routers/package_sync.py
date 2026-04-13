@@ -14,7 +14,7 @@ import re
 import tempfile
 import uuid
 from copy import deepcopy
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
@@ -357,7 +357,7 @@ async def _copy_packages_to_server(
 
     for package_id in package_ids:
         item_logs: list[str] = [f"Begin copy for package #{package_id}"]
-        file_status: str | None = None
+        file_status: Literal["transferred", "skipped", "failed"] | None = None
         file_message: str | None = None
 
         try:

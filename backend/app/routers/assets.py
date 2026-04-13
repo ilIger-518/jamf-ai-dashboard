@@ -194,7 +194,6 @@ async def list_packages(
         package_endpoints = [
             ("/api/v1/packages", {"page": 0, "page-size": 200}, "modern"),
             ("/JSSResource/packages", None, "classic"),
-            ("/JSSResource/packages/subset/basic", None, "classic-subset"),
         ]
 
         for credential_label, client_id, client_secret in credential_sets:
