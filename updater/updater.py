@@ -17,6 +17,7 @@ Exposes a small HTTP API (port 8089 — internal network only):
 import asyncio
 import logging
 import os
+import socket
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -384,9 +385,16 @@ def _get_allocated_host_ports() -> set[int]:
 def _find_free_port(start: int, allocated: set[int], end: int = 65535) -> int | None:
     """Return the first port in [start, min(start+1000, end)] that is not in *allocated*."""
     for port in range(start, min(start + 1000, end) + 1):
-        if port not in allocated:
+        if port not in allocated and not _is_host_port_in_use(port):
             return port
     return None
+
+
+def _is_host_port_in_use(port: int) -> bool:
+    """Return True when a local process/container has already bound host port *port*."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _get_compose_service_ports(services: list[str]) -> dict[str, list[int]]:
@@ -506,7 +514,7 @@ def _ensure_ports_available(services: list[str]) -> None:
 
     for svc, host_ports in desired.items():
         for hp in host_ports:
-            if hp in allocated:
+            if hp in allocated or _is_host_port_in_use(hp):
                 free = _find_free_port(hp + 1, allocated)
                 if free is None:
                     raise RuntimeError(
@@ -790,16 +798,19 @@ async def apply_update(auto_triggered: bool = False) -> None:
         if code != 0:
             raise RuntimeError(f"Build failed: {out}")
 
-        # 3. Check host ports; remap to free ports if any are already in use
-        _ensure_ports_available(APP_SERVICES)
-
-        # 4. docker compose up -d
+        # 3. docker compose up -d
+        _remove_port_override()
         code, out = _run(["docker", "compose", "up", "-d"] + APP_SERVICES)
         _emit(f"docker compose up -d → exit={code}\n{out}")
+        if code != 0 and _contains_port_conflict(out):
+            _emit("Port conflict detected during compose up; trying automatic host-port remap")
+            _ensure_ports_available(APP_SERVICES)
+            code, out = _run(["docker", "compose", "up", "-d"] + APP_SERVICES)
+            _emit(f"docker compose up -d (retry with remap) → exit={code}\n{out}")
         if code != 0:
             raise RuntimeError(f"docker compose up failed: {out}")
 
-        # 5. health check
+        # 4. health check
         _emit(f"Waiting up to {ROLLBACK_TIMEOUT} s for health check …")
         healthy = await _wait_for_health()
         if not healthy:
@@ -815,15 +826,6 @@ async def apply_update(auto_triggered: bool = False) -> None:
     except RuntimeError as exc:
         _emit(f"Update failed: {exc} — rolling back to {prev_commit}")
         _remove_port_override()
-
-        if _contains_port_conflict(str(exc)):
-            _emit("Detected port conflict; restoring git state without restart rollback")
-            rc, out = _run(["git", "reset", "--hard", prev_commit])
-            _emit(f"git reset --hard → exit={rc}\n{out}")
-            _state["current_commit"] = prev_commit
-            _state["last_update_result"] = "failed_port_conflict"
-            _state["last_update_at"] = datetime.now(timezone.utc).isoformat()
-            return
 
         rc, out = _run(["git", "reset", "--hard", prev_commit])
         _emit(f"git reset --hard → exit={rc}\n{out}")
