@@ -614,7 +614,7 @@ async def _create_category_on_target(
     base_url: str,
     token: str,
     category_name: str,
-) -> None:
+) -> Literal["created", "exists", "unauthorized"]:
     resp = await client.post(
         f"{base_url}/JSSResource/categories/id/0",
         headers={
@@ -624,9 +624,15 @@ async def _create_category_on_target(
         },
         json={"category": {"name": category_name, "priority": 9}},
     )
+    if resp.status_code in (200, 201):
+        return "created"
     # 409 means already exists (race or concurrent migration)
-    if resp.status_code in (200, 201, 409):
-        return
+    if resp.status_code == 409:
+        return "exists"
+    # Some tenants allow policy create but not category create.
+    # Continue migration and let payload fallback remove unresolved categories if needed.
+    if resp.status_code in (401, 403):
+        return "unauthorized"
     raise RuntimeError(
         f"Failed to create category '{category_name}' on target: HTTP {resp.status_code}"
     )
@@ -661,22 +667,53 @@ async def _ensure_payload_categories_exist(
     base_url: str,
     token: str,
     payload: dict,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Ensure any category names referenced in payload exist on target Jamf."""
     category_names = _extract_category_names_from_payload(payload)
     if not category_names:
-        return []
+        return [], []
 
     existing = await _list_target_categories_by_name(client, base_url, token)
     created: list[str] = []
+    skipped_unauthorized: list[str] = []
     for category_name in sorted(category_names):
         if category_name in existing:
             continue
-        await _create_category_on_target(client, base_url, token, category_name)
-        created.append(category_name)
+        result = await _create_category_on_target(client, base_url, token, category_name)
+        if result == "created":
+            created.append(category_name)
+        elif result == "unauthorized":
+            skipped_unauthorized.append(category_name)
         existing.add(category_name)
 
-    return created
+    return created, skipped_unauthorized
+
+
+def _clear_policy_scope_computers(payload: dict) -> bool:
+    """Remove explicit computer references from policy scope for cross-server safety."""
+    changed = False
+    scope = payload.get("scope")
+    if not isinstance(scope, dict):
+        return False
+
+    def _clear_computers_container(container: dict) -> None:
+        nonlocal changed
+        computers = container.get("computers")
+        if isinstance(computers, dict):
+            if computers.get("computer"):
+                changed = True
+            computers["computer"] = []
+        elif "computers" in container:
+            changed = True
+            container["computers"] = {"computer": []}
+
+    _clear_computers_container(scope)
+
+    exclusions = scope.get("exclusions")
+    if isinstance(exclusions, dict):
+        _clear_computers_container(exclusions)
+
+    return changed
 
 
 def _filter_policy_payload_dependencies(
@@ -918,9 +955,13 @@ async def migrate_objects(
                 if body.entity_type == "static_group" and not body.include_static_members:
                     _clear_static_group_members(payload)
                     item_logs.append("Cleared static group members for safe cross-server create")
+                if body.entity_type == "policy" and _clear_policy_scope_computers(payload):
+                    item_logs.append(
+                        "Cleared policy explicit computer scope references for cross-server create"
+                    )
 
                 if body.entity_type in {"policy", "script"}:
-                    created_categories = await _ensure_payload_categories_exist(
+                    created_categories, unauthorized_categories = await _ensure_payload_categories_exist(
                         client,
                         target.url.rstrip("/"),
                         target_token,
@@ -929,6 +970,11 @@ async def migrate_objects(
                     if created_categories:
                         item_logs.append(
                             "Created missing target categories: " + ", ".join(created_categories)
+                        )
+                    if unauthorized_categories:
+                        item_logs.append(
+                            "Skipped category create (insufficient target permission): "
+                            + ", ".join(unauthorized_categories)
                         )
 
                 try:
