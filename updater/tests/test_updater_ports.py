@@ -19,7 +19,8 @@ def test_is_host_port_in_use_detects_bound_socket() -> None:
     updater = _load_updater_module()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
-        port = int(sock.getsockname()[1])
+        sock.listen(1)
+        port = sock.getsockname()[1]
         assert updater._is_host_port_in_use(port) is True
 
 
@@ -27,7 +28,8 @@ def test_find_free_port_skips_non_docker_host_conflict() -> None:
     updater = _load_updater_module()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
-        taken_port = int(sock.getsockname()[1])
+        sock.listen(1)
+        taken_port = sock.getsockname()[1]
         free_port = updater._find_free_port(taken_port, allocated=set(), end=taken_port + 20)
         assert free_port is not None
         assert free_port != taken_port

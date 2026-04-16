@@ -393,12 +393,8 @@ def _find_free_port(start: int, allocated: set[int], end: int = 65535) -> int | 
 def _is_host_port_in_use(port: int) -> bool:
     """Return True when a local process/container has already bound host port *port*."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind(("0.0.0.0", port))
-        except OSError:
-            return True
-    return False
+        sock.settimeout(0.2)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
 def _get_compose_service_ports(services: list[str]) -> dict[str, list[int]]:
