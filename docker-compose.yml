@@ -168,9 +168,52 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── MySQL (WordPress database) ────────────────────────────────
+  # NOTE: The inline defaults below are for local development only.
+  # Always set strong passwords via .env before deploying anywhere beyond localhost.
+  wordpress-db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${WORDPRESS_DB_NAME:-wordpress}
+      MYSQL_USER: ${WORDPRESS_DB_USER:-wordpress}
+      MYSQL_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+      MYSQL_ROOT_PASSWORD: ${WORDPRESS_DB_ROOT_PASSWORD:-changeme_root}
+    volumes:
+      - wordpress_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── WordPress ─────────────────────────────────────────────────
+  wordpress:
+    image: wordpress:6.8
+    restart: unless-stopped
+    environment:
+      WORDPRESS_DB_HOST: wordpress-db:3306
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME:-wordpress}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER:-wordpress}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD:-changeme}
+    depends_on:
+      wordpress-db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    volumes:
+      - wordpress_data:/var/www/html
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
   chroma_data:
   ollama_data:
   backend_logs:
+  wordpress_db_data:
+  wordpress_data:

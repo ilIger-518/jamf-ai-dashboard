@@ -27,6 +27,7 @@ Self-hosted Jamf Pro operations dashboard with a local AI assistant, multi-serve
 - Backend API: `http://localhost:8000`
 - Swagger docs: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
+- WordPress: `http://localhost:8080`
 
 ## Quick Start
 
@@ -214,6 +215,37 @@ Running scrape jobs can be controlled from the Knowledge Base UI:
   - `Linux style`: `1-(cores*100)%` (for example 6 cores => `1-600%`)
 
 Note: CPU cap is cooperative application-level throttling in the scraper loop.
+
+## WordPress Frontend
+
+A WordPress instance is included in the Docker Compose stack, running on port **8080**. It is backed by a dedicated MySQL 8 database (`wordpress-db`) that is separate from the application's PostgreSQL database.
+
+### First-Time WordPress Setup
+
+1. Start the full stack (if not already running):
+   ```bash
+   docker compose up -d
+   ```
+2. Open `http://localhost:8080` in your browser.
+3. Complete the WordPress installation wizard (choose language, site title, admin credentials).
+4. Log in to the WordPress admin panel at `http://localhost:8080/wp-admin`.
+
+### Environment Variables
+
+WordPress credentials are controlled by the following variables in `.env` (see `.env.example`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `WORDPRESS_DB_NAME` | `wordpress` | MySQL database name |
+| `WORDPRESS_DB_USER` | `wordpress` | MySQL user |
+| `WORDPRESS_DB_PASSWORD` | `changeme` | MySQL password — **change this** |
+| `WORDPRESS_DB_ROOT_PASSWORD` | `changeme_root` | MySQL root password — **change this** |
+
+> **Tip:** Change the default passwords in `.env` before running the stack in any environment beyond local development.
+
+### Editing Content
+
+Use the WordPress block editor (Gutenberg) or any compatible page builder plugin to manage site content without touching code. All content is persisted in the `wordpress_data` and `wordpress_db_data` Docker volumes.
 
 ## Documentation Index
 
