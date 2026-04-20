@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { useSearchParams } from "next/navigation";
 import {
   Plus,
   Trash2,
@@ -29,6 +30,7 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/authStore";
+import { DetailDrawer, DrawerRow, DrawerSection } from "@/components/shared/DetailDrawer";
 
 interface JamfServer {
   id: string;
@@ -946,10 +948,11 @@ function UpdatesPanel() {
   );
 }
 
-function LogsPanel() {
+function LogsPanel({ initialSelectedLogId }: { initialSelectedLogId?: string | null }) {
   const [category, setCategory] = useState<"all" | "server" | "login" | "action">("all");
   const [dockerService, setDockerService] = useState<string>("all");
   const [dockerTail, setDockerTail] = useState<number>(400);
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(initialSelectedLogId ?? null);
   const { data: logs = [], isLoading, refetch, isFetching, error } = useQuery<DashboardLogEntry[]>({
     queryKey: ["logs", category],
     queryFn: () =>
@@ -993,6 +996,15 @@ function LogsPanel() {
     refetchInterval: 30_000,
     retry: false,
   });
+
+  useEffect(() => {
+    setSelectedLogId(initialSelectedLogId ?? null);
+  }, [initialSelectedLogId]);
+
+  const selectedLog = useMemo(
+    () => logs.find((log) => log.id === selectedLogId) ?? null,
+    [logs, selectedLogId],
+  );
 
   const downloadServerLog = async (filename: string) => {
     try {
@@ -1065,9 +1077,16 @@ function LogsPanel() {
                   <th className="px-4 py-2 text-left">Message</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                  {logs.map((log) => (
+                  <tr
+                    key={log.id}
+                    onClick={() => setSelectedLogId(log.id)}
+                    className={cn(
+                      "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/40",
+                      selectedLogId === log.id && "bg-blue-50 dark:bg-blue-950/20",
+                    )}
+                  >
                     <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
                       {new Date(log.created_at).toLocaleString()}
                     </td>
@@ -1092,6 +1111,33 @@ function LogsPanel() {
           </div>
         )}
       </div>
+
+      <DetailDrawer
+        open={!!selectedLog}
+        onClose={() => setSelectedLogId(null)}
+        title={selectedLog?.message ?? "Log details"}
+      >
+        {selectedLog && (
+          <div className="space-y-6 px-6 py-4">
+            <DrawerSection title="Log">
+              <DrawerRow label="Time" value={new Date(selectedLog.created_at).toLocaleString()} />
+              <DrawerRow label="Category" value={selectedLog.category} />
+              <DrawerRow label="Level" value={selectedLog.level} />
+              <DrawerRow label="Status code" value={selectedLog.status_code ?? "—"} />
+              <DrawerRow label="Action" value={selectedLog.action} />
+              <DrawerRow label="Method" value={selectedLog.method ?? "—"} />
+              <DrawerRow label="Path" value={<span className="font-mono text-xs">{selectedLog.path ?? "—"}</span>} />
+              <DrawerRow label="User" value={selectedLog.username ?? "—"} />
+              <DrawerRow label="IP address" value={<span className="font-mono text-xs">{selectedLog.ip_address ?? "—"}</span>} />
+            </DrawerSection>
+            <DrawerSection title="Message">
+              <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-700 whitespace-pre-wrap dark:bg-gray-800 dark:text-gray-200">
+                {selectedLog.message}
+              </p>
+            </DrawerSection>
+          </div>
+        )}
+      </DetailDrawer>
 
       <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
@@ -2022,6 +2068,7 @@ function UsersRolesPanel({ canManageUsers, canManageRoles }: { canManageUsers: b
 export default function SettingsPage() {
   const { user } = useAuthStore();
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
   const [modal, setModal] = useState<"add" | JamfServer | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
@@ -2030,6 +2077,7 @@ export default function SettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const selectedLogIdFromUrl = searchParams.get("logId");
 
   const permissions = user?.permissions ?? [];
   const canManageSettings = permissions.includes("settings.manage") || !!user?.is_admin;
@@ -2053,6 +2101,14 @@ export default function SettingsPage() {
       setActiveTab(tabs[0].key);
     }
   }, [activeTab, tabs]);
+
+  useEffect(() => {
+    const tabParam = searchParams.get("tab");
+    if (!tabParam) return;
+    if (tabs.some((tab) => tab.key === tabParam)) {
+      setActiveTab(tabParam as "servers" | "users" | "ai" | "logs" | "updates");
+    }
+  }, [searchParams, tabs]);
 
   const { data: servers = [], isLoading } = useQuery<JamfServer[]>({
     queryKey: ["servers"],
@@ -2394,7 +2450,7 @@ export default function SettingsPage() {
 
       {activeTab === "ai" && <AiPanel />}
 
-      {activeTab === "logs" && <LogsPanel />}
+      {activeTab === "logs" && <LogsPanel initialSelectedLogId={selectedLogIdFromUrl} />}
 
       {activeTab === "updates" && <UpdatesPanel />}
 

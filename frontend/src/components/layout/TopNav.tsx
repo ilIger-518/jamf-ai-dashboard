@@ -31,6 +31,7 @@ interface DashboardLogEntry {
 
 interface NotificationItem {
   id: string;
+  logId?: string;
   tone: "warning" | "error" | "info" | "success";
   title: string;
   detail: string;
@@ -129,6 +130,7 @@ export function TopNav() {
 
       items.push({
         id: `log-${log.id}`,
+        logId: log.id,
         tone: isError ? "error" : "warning",
         title: log.message,
         detail: `${log.category.toUpperCase()}${log.status_code ? ` • ${log.status_code}` : ""}`,
@@ -198,14 +200,14 @@ export function TopNav() {
             <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
               <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2 dark:border-gray-800">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Notifications</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    router.push("/settings");
-                  }}
-                  className="text-xs font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      router.push("/settings?tab=logs");
+                    }}
+                    className="text-xs font-medium text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
                   View all
                 </button>
               </div>
@@ -217,7 +219,11 @@ export function TopNav() {
                       onClick={() => {
                         setMenuOpen(false);
                         if (item.id !== "all-clear") {
-                          router.push("/settings");
+                          if (item.logId) {
+                            router.push(`/settings?tab=logs&logId=${encodeURIComponent(item.logId)}`);
+                          } else {
+                            router.push("/settings?tab=logs");
+                          }
                         }
                       }}
                       className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800/70 transition"
