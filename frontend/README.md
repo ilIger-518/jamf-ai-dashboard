@@ -17,7 +17,7 @@ Next.js frontend for Jamf AI Dashboard.
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
