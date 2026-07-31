@@ -16,9 +16,9 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d1e2f3a4b5c6"
-down_revision: str | None = "c1d2e3f4a5b6"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+down_revision:Optional[str] = "c1d2e3f4a5b6"
+branch_labels: str | Optional[Sequence[str]] = None
+depends_on: str | Optional[Sequence[str]] = None
 
 _TABLES = [
     ("devices", "uq_devices_jamf_id_server_id"),

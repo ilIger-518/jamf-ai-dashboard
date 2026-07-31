@@ -15,9 +15,9 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "e5a7c9d1b2f4"
-down_revision: str | None = "d9e4a1b7c2f3"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+down_revision:Optional[str] = "d9e4a1b7c2f3"
+branch_labels: str | Optional[Sequence[str]] = None
+depends_on: str | Optional[Sequence[str]] = None
 
 
 ADMIN_ROLE_ID = uuid.UUID("6a925f66-dcfc-4c3b-8a4e-88c6904e2d34")

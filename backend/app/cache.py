@@ -1,10 +1,12 @@
 """Redis client singleton."""
 
+from typing import Optional
+
 from redis.asyncio import Redis
 
 from app.config import get_settings
 
-_redis_client: Redis | None = None
+_redis_client: Optional[Redis] = None
 
 
 async def get_redis() -> Redis:

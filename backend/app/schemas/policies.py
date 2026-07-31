@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -11,11 +12,11 @@ class PolicyResponse(BaseModel):
     jamf_id: int
     name: str
     enabled: bool
-    category: str | None
-    trigger: str | None
-    scope_description: str | None
+    category:Optional[str]
+    trigger:Optional[str]
+    scope_description:Optional[str]
     server_id: uuid.UUID
-    server_url: str | None = None
+    server_url:Optional[str] = None
     synced_at: datetime
 
     model_config = {"from_attributes": True}
@@ -26,3 +27,4 @@ class PagedPolicies(BaseModel):
     total: int
     page: int
     per_page: int
+from typing import Optional

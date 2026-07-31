@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -79,7 +79,7 @@ class Device(Base):
     compliance_results: Mapped[list["ComplianceResult"]] = relationship(  # noqa: F821
         "ComplianceResult", back_populates="device", cascade="all, delete-orphan"
     )
-    security_status: Mapped["SecurityStatus | None"] = relationship(  # noqa: F821
+    security_status: Mapped[Optional["SecurityStatus"]] = relationship(  # noqa: F821
         "SecurityStatus", back_populates="device", uselist=False, cascade="all, delete-orphan"
     )
 

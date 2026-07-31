@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -11,11 +11,11 @@ class SmartGroupResponse(BaseModel):
     id: uuid.UUID
     jamf_id: int
     name: str
-    criteria: list[Any] | None
+    criteria:Optional[list[Any]]
     member_count: int
-    last_refreshed: datetime | None
+    last_refreshed:Optional[datetime]
     server_id: uuid.UUID
-    server_url: str | None = None
+    server_url:Optional[str] = None
     synced_at: datetime
 
     model_config = {"from_attributes": True}

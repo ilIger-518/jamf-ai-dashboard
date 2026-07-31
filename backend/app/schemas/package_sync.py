@@ -1,7 +1,7 @@
 """Schemas for package record synchronisation between Jamf Pro servers."""
 
 import uuid
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, model_validator
 class PackageSyncItem(BaseModel):
     id: int
     name: str
-    filename: str | None = None
-    category: str | None = None
+    filename:Optional[str] = None
+    category:Optional[str] = None
 
 
 class PackageSyncRequest(BaseModel):
@@ -31,10 +31,10 @@ class PackageSyncItemResult(BaseModel):
     package_id: int
     name: str
     status: Literal["created", "skipped", "failed"]
-    message: str | None = None
+    message:Optional[str] = None
     logs: list[str] = []
-    file_status: Literal["transferred", "skipped", "failed"] | None = None
-    file_message: str | None = None
+    file_status:Optional[Literal["transferred", "skipped", "failed"]] = None
+    file_message:Optional[str] = None
 
 
 class PackageSyncServerResult(BaseModel):

@@ -1,12 +1,14 @@
 """Schemas for live Jamf script/package catalog endpoints."""
 
+from typing import Optional
+
 from pydantic import BaseModel
 
 
 class ScriptItem(BaseModel):
     id: int
     name: str
-    category: str | None = None
+    category:Optional[str] = None
     jamf_script_url: str
 
 
@@ -19,11 +21,11 @@ class ScriptParameter(BaseModel):
 class ScriptDetailItem(BaseModel):
     id: int
     name: str
-    category: str | None = None
-    notes: str | None = None
-    info: str | None = None
-    priority: str | None = None
-    os_requirements: str | None = None
+    category:Optional[str] = None
+    notes:Optional[str] = None
+    info:Optional[str] = None
+    priority:Optional[str] = None
+    os_requirements:Optional[str] = None
     script_contents: str
     parameters: list[ScriptParameter] = []
     jamf_script_url: str
@@ -32,5 +34,6 @@ class ScriptDetailItem(BaseModel):
 class PackageItem(BaseModel):
     id: int
     name: str
-    filename: str | None = None
-    category: str | None = None
+    filename:Optional[str] = None
+    category:Optional[str] = None
+from typing import Optional

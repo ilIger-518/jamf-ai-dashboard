@@ -13,9 +13,9 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "8a7b6c5d4e3f"
-down_revision: str | None = "7f6e5d4c3b2a"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+down_revision:Optional[str] = "7f6e5d4c3b2a"
+branch_labels: str | Optional[Sequence[str]] = None
+depends_on: str | Optional[Sequence[str]] = None
 
 
 def upgrade() -> None:

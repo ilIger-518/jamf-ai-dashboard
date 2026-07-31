@@ -14,9 +14,9 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "9c8b7a6d5e4f"
-down_revision: str | None = "8a7b6c5d4e3f"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+down_revision:Optional[str] = "8a7b6c5d4e3f"
+branch_labels: str | Optional[Sequence[str]] = None
+depends_on: str | Optional[Sequence[str]] = None
 
 
 def upgrade() -> None:

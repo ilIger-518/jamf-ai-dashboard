@@ -1,7 +1,7 @@
 """Authentication router: register, login, refresh, logout, me."""
 
 import uuid
-from typing import Literal
+from typing import Literal, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -141,7 +141,7 @@ async def login(body: LoginRequest, response: Response, db: DBSession) -> TokenR
 )
 async def refresh_token(
     response: Response,
-    refresh_token: str | None = Cookie(default=None),
+    refresh_token:Optional[str] = Cookie(default=None),
 ) -> TokenResponse:
     redis = await get_redis()
     if not refresh_token:
@@ -247,9 +247,9 @@ async def microsoft_sso_start() -> RedirectResponse:
 @router.get("/sso/microsoft/callback", summary="Microsoft SSO callback")
 async def microsoft_sso_callback(
     db: DBSession,
-    code: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
+    code:Optional[str] = None,
+    state:Optional[str] = None,
+    error:Optional[str] = None,
 ) -> RedirectResponse:
     settings = get_settings()
     if error:

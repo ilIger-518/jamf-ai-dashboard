@@ -42,6 +42,7 @@ from app.models.scrape_job_log import ScrapeJobLog
 from app.services.llm import complete_chat
 from app.services.vector_store import ingest_document
 
+from typing import Optional
 logger = logging.getLogger(__name__)
 
 _MAX_SUB_SITEMAPS = 40
@@ -191,7 +192,7 @@ async def _fetch_candidate_page(
     html = resp.text
     text = _extract_text(html)
     zoomin_title = ""
-    topic_html_for_links: str | None = None
+    topic_html_for_links:Optional[str] = None
 
     if len(text) < 300:
         zoomin = await _try_zoomin_content(http, url, html)
@@ -411,8 +412,8 @@ async def run_scrape_job(job_id: str) -> None:
     logger.info("Starting scrape job %s", job_id)
     await _append_job_log(job_id, "Job started")
 
-    continued_from_job_id: uuid.UUID | None = None
-    knowledge_base_id: uuid.UUID | None = None
+    continued_from_job_id:Optional[uuid.UUID] = None
+    knowledge_base_id:Optional[uuid.UUID] = None
     knowledge_collection_name = "jamf_knowledge"
     knowledge_base_name = "default"
 
@@ -685,7 +686,7 @@ async def run_scrape_job(job_id: str) -> None:
                         text.encode("utf-8", errors="replace")
                     ).hexdigest()
 
-                    existing: KnowledgeDocument | None = None
+                    existing:Optional[KnowledgeDocument] = None
                     async with AsyncSessionLocal() as session:
                         existing = (
                             await session.execute(

@@ -14,7 +14,7 @@ import re
 import tempfile
 import uuid
 from copy import deepcopy
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Optional
 from xml.sax.saxutils import escape as xml_escape
 
 import httpx
@@ -84,7 +84,7 @@ def _normalize_list_payload(
     return list(val)
 
 
-def _extract_category_name(raw_category: object) -> str | None:
+def _extract_category_name(raw_category: object) ->Optional[str]:
     if isinstance(raw_category, dict):
         return raw_category.get("name")
     if isinstance(raw_category, str):
@@ -160,7 +160,7 @@ async def _create_package_on_target(
     base_url: str,
     token: str,
     payload: dict[str, Any],
-) -> tuple[list[str], int | None]:
+) ->Optional[tuple[list[str], int]]:
     """Create a package record on target.
 
     Returns ``(logs, new_package_id)``.  *new_package_id* is ``None`` when the
@@ -168,9 +168,9 @@ async def _create_package_on_target(
     """
     endpoint = f"{base_url}/JSSResource/packages/id/0"
     logs: list[str] = []
-    new_id: int | None = None
+    new_id:Optional[int] = None
 
-    def _parse_id(resp: httpx.Response) -> int | None:
+    def _parse_id(resp: httpx.Response) ->Optional[int]:
         # 1. JSON body: {"package": {"id": N}}
         try:
             val = resp.json().get("package", {}).get("id")
@@ -291,7 +291,7 @@ async def _transfer_package_file(
     download_url = await _get_package_download_url(source_base_url, source_token, source_package_id)
     logs.append("Got download URL")
 
-    tmp_path: str | None = None
+    tmp_path:Optional[str] = None
     try:
         # Stream-download to a temporary file
         logs.append("Downloading package file from source …")
@@ -357,8 +357,8 @@ async def _copy_packages_to_server(
 
     for package_id in package_ids:
         item_logs: list[str] = [f"Begin copy for package #{package_id}"]
-        file_status: Literal["transferred", "skipped", "failed"] | None = None
-        file_message: str | None = None
+        file_status:Optional[Literal["transferred", "skipped", "failed"]] = None
+        file_message:Optional[str] = None
 
         try:
             detail = await _fetch_package_detail(client, source_base_url, source_token, package_id)
@@ -501,7 +501,7 @@ async def list_packages(
         )
 
         raw_items: list[dict[str, Any]] = []
-        package_endpoints: list[tuple[str, dict[str, Any] | None, str]] = [
+        package_endpoints:Optional[list[tuple[str, dict[str, Any]], str]] = [
             ("/api/v1/packages", {"page": 0, "page-size": 200}, "modern"),
             ("/JSSResource/packages", None, "classic"),
         ]

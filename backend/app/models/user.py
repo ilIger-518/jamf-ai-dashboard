@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -41,4 +41,4 @@ class User(Base):
     chat_sessions: Mapped[list["ChatSession"]] = relationship(  # noqa: F821
         "ChatSession", back_populates="user", cascade="all, delete-orphan"
     )
-    role: Mapped["Role | None"] = relationship("Role", back_populates="users")  # noqa: F821
+    role: Mapped[Optional["Role"]] = relationship("Role", back_populates="users")  # noqa: F821
