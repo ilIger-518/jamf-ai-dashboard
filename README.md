@@ -28,6 +28,10 @@ Self-hosted Jamf Pro operations dashboard with a local AI assistant, multi-serve
 - Swagger docs: `http://localhost:8000/docs`
 - ReDoc: `http://localhost:8000/redoc`
 
+## Test Status
+
+[![Coverage](https://img.shields.io/badge/coverage-80%25%2B-brightgreen)](https://github.com/ilIger-518/jamf-ai-dashboard/actions)
+
 ## Quick Start
 
 ```bash
