@@ -52,7 +52,7 @@
   - `structlog>=24.0` (structured logging)
   - `prometheus-fastapi-instrumentator>=7.0` (metrics)
 - [ ] Create and activate a Python virtual environment (`python -m venv .venv`)
-- [ ] Install all backend dependencies (`pip install -r backend/requirements.txt`)
+- [x] Install all backend dependencies (`pip install -r backend/requirements.txt`)
 - [x] Create `backend/requirements-dev.txt`:
   - `pytest>=8`
   - `pytest-asyncio>=0.23`
@@ -106,7 +106,7 @@
 - [x] Configure `mypy` with `strict` mode in `mypy.ini`
 - [x] Set up `pre-commit` hooks (ruff, mypy, prettier, ESLint, trailing-whitespace)
 - [x] Configure Prettier for frontend (`.prettierrc`)
-- [ ] Configure ESLint rules in `eslint.config.mjs` (already exists — review and expand)
+- [x] Configure ESLint rules in `eslint.config.mjs` (already exists — review and expand)
 - [x] Set up GitHub Actions CI workflow (`.github/workflows/ci.yml`): lint → unit tests → build
 
 ---
@@ -235,14 +235,14 @@
 - [ ] Implement cache invalidation on successful sync completion
 
 ### 2.13 API General
-- [ ] Add CORS middleware (allow frontend origin)
-- [ ] Add global exception handler returning RFC 7807 problem+json responses
+- [x] Add CORS middleware (allow frontend origin)
+- [x] Add global exception handler returning RFC 7807 problem+json responses
 - [ ] Add request ID middleware (inject `X-Request-ID` header)
 - [ ] Add structured access logging middleware
-- [ ] Add Prometheus metrics endpoint (`/metrics`) via `prometheus-fastapi-instrumentator`
+- [x] Add Prometheus metrics endpoint (`/metrics`) via `prometheus-fastapi-instrumentator`
 - [ ] Add rate limiting middleware (token bucket per user, via Redis)
-- [ ] Version all endpoints under `/api/v1/` prefix
-- [ ] Generate OpenAPI schema — review and add examples to all schemas
+- [x] Version all endpoints under `/api/v1/` prefix
+- [x] Generate OpenAPI schema — review and add examples to all schemas
 
 ---
 
