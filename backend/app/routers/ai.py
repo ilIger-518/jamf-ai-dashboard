@@ -4,7 +4,9 @@ import json
 import logging
 import re
 import uuid as uuid_lib
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.utils.datetime_compat import UTC
 from threading import Lock
 from typing import Literal
 

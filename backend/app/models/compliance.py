@@ -23,7 +23,7 @@ class ComplianceResult(Base):
     )
     check_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False)  # "pass" | "fail" | "warn"
-    details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    details: Mapped[object] = mapped_column(Text, nullable=True)
     checked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -42,12 +42,12 @@ class SecurityStatus(Base):
         nullable=False,
         index=True,
     )
-    firewall_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    sip_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    gatekeeper_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    filevault_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    remote_login_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    disk_encryption_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    firewall_enabled: Mapped[object] = mapped_column(Boolean, nullable=True)
+    sip_enabled: Mapped[object] = mapped_column(Boolean, nullable=True)
+    gatekeeper_enabled: Mapped[object] = mapped_column(Boolean, nullable=True)
+    filevault_enabled: Mapped[object] = mapped_column(Boolean, nullable=True)
+    remote_login_enabled: Mapped[object] = mapped_column(Boolean, nullable=True)
+    disk_encryption_status: Mapped[object] = mapped_column(String(64), nullable=True)
 
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

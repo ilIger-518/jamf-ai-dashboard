@@ -1,7 +1,9 @@
 """System info and software-update proxy endpoints."""
 
 import os
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.utils.datetime_compat import UTC
 from pathlib import Path
 
 import httpx

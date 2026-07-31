@@ -29,8 +29,8 @@ class PatchTitle(Base):
         index=True,
     )
     software_title: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    current_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    latest_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    current_version: Mapped[object] = mapped_column(String(64), nullable=True)
+    latest_version: Mapped[object] = mapped_column(String(64), nullable=True)
     patched_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     unpatched_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

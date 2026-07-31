@@ -15,14 +15,14 @@ logger = logging.getLogger(__name__)
 UseCase = str
 
 
-def describe_llm_target(settings: Settings | None = None) -> str:
+def describe_llm_target(settings: Settings = None) -> str:
     cfg = settings or get_settings()
     if cfg.ai_provider == "custom":
         return f"custom:{cfg.custom_ai_model}"
     return f"local:{cfg.ollama_model}"
 
 
-def describe_embedding_target(settings: Settings | None = None) -> str:
+def describe_embedding_target(settings: Settings = None) -> str:
     cfg = settings or get_settings()
     if cfg.embedding_provider == "custom":
         return f"custom:{cfg.custom_embedding_model}"
@@ -138,8 +138,8 @@ def _extract_openai_message_content(payload: dict[str, Any]) -> str:
 async def complete_chat(
     messages: list[dict[str, str]],
     *,
-    temperature: float | None = None,
-    timeout: float | None = None,
+    temperature: float = None,
+    timeout: float = None,
     use_case: UseCase = "chat",
 ) -> str:
     cfg = get_settings()
@@ -154,8 +154,8 @@ async def complete_chat(
 async def stream_chat(
     messages: list[dict[str, str]],
     *,
-    temperature: float | None = None,
-    timeout: httpx.Timeout | None = None,
+    temperature: float = None,
+    timeout: httpx.Timeout = None,
     use_case: UseCase = "chat",
 ) -> AsyncIterator[str]:
     cfg = get_settings()
@@ -170,7 +170,7 @@ async def stream_chat(
         yield chunk
 
 
-async def embed_texts(texts: list[str], *, num_thread: int | None = None) -> list[list[float]]:
+async def embed_texts(texts: list[str], *, num_thread: int = None) -> list[list[float]]:
     cfg = get_settings()
     if cfg.embedding_provider == "custom":
         return await _embed_custom(cfg, texts)
@@ -247,7 +247,7 @@ async def _stream_ollama(
     cfg: Settings,
     messages: list[dict[str, str]],
     temperature: float,
-    timeout: httpx.Timeout | None,
+    timeout: httpx.Timeout = None,
 ) -> AsyncIterator[str]:
     request_timeout = timeout or httpx.Timeout(
         connect=10.0,
@@ -377,7 +377,7 @@ async def _stream_custom(
     cfg: Settings,
     messages: list[dict[str, str]],
     temperature: float,
-    timeout: httpx.Timeout | None,
+    timeout: httpx.Timeout = None,
     *,
     use_case: UseCase,
 ) -> AsyncIterator[str]:
@@ -453,7 +453,7 @@ async def _stream_custom(
 async def _embed_ollama(
     cfg: Settings,
     texts: list[str],
-    num_thread: int | None = None,
+    num_thread: int = None,
 ) -> list[list[float]]:
     embeddings: list[list[float]] = []
     async with httpx.AsyncClient(timeout=60.0) as client:

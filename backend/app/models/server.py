@@ -29,12 +29,12 @@ class JamfServer(Base):
     client_secret: Mapped[str] = mapped_column(Text, nullable=False)
 
     # Dedicated read-only credentials used exclusively by the AI module
-    ai_client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ai_client_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_client_id: Mapped[object] = mapped_column(Text, nullable=True)
+    ai_client_secret: Mapped[object] = mapped_column(Text, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_sync: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_error: Mapped[object] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

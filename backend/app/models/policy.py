@@ -30,10 +30,10 @@ class Policy(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    category: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    trigger: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    scope_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    payload_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[object] = mapped_column(String(128), nullable=True, index=True)
+    trigger: Mapped[object] = mapped_column(String(64), nullable=True)
+    scope_description: Mapped[object] = mapped_column(Text, nullable=True)
+    payload_description: Mapped[object] = mapped_column(Text, nullable=True)
 
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

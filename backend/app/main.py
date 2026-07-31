@@ -3,7 +3,9 @@
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.utils.datetime_compat import UTC
 
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler

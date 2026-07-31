@@ -54,7 +54,7 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)  # "user" | "assistant"
     content: Mapped[str] = mapped_column(Text, nullable=False)
     # List of {title, source, chunk_id} dicts from RAG retrieval
-    sources: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    sources: Mapped[object] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -84,12 +84,12 @@ class PendingAction(Base):
     human_readable_summary: Mapped[str] = mapped_column(Text, nullable=False)
     # "pending" | "approved" | "rejected"
     status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False, index=True)
-    result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    result: Mapped[object] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
 
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="pending_actions")
 
@@ -103,7 +103,7 @@ class AiToolAuditLog(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    session_id: Mapped[uuid.UUID | None] = mapped_column(
+    session_id: Mapped[object] = mapped_column(
         UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True
     )
     tool_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -111,7 +111,7 @@ class AiToolAuditLog(Base):
     parameters: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     # "executed" | "pending_approval" | "approved" | "rejected"
     approval_status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
-    pending_action_id: Mapped[uuid.UUID | None] = mapped_column(
+    pending_action_id: Mapped[object] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pending_actions.id", ondelete="SET NULL"), nullable=True
     )
     executed_at: Mapped[datetime] = mapped_column(

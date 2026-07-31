@@ -15,10 +15,10 @@ class ScrapeJob(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     domain: Mapped[str] = mapped_column(String(1024), nullable=False)
-    max_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = unlimited
-    max_size_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = no size limit
-    topic_filter: Mapped[str | None] = mapped_column(Text, nullable=True)
-    knowledge_base_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    max_pages: Mapped[object] = mapped_column(Integer, nullable=True)  # None = unlimited
+    max_size_mb: Mapped[object] = mapped_column(Integer, nullable=True)  # None = no size limit
+    topic_filter: Mapped[object] = mapped_column(Text, nullable=True)
+    knowledge_base_id: Mapped[object] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # "pending" | "running" | "completed" | "completed_with_errors" | "failed"
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
@@ -26,7 +26,7 @@ class ScrapeJob(Base):
     pages_scraped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     pages_found: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     bytes_scraped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[object] = mapped_column(Text, nullable=True)
 
     # Runtime controls
     pause_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -37,13 +37,13 @@ class ScrapeJob(Base):
     seed_mode: Mapped[str] = mapped_column(String(16), default="start_url", nullable=False)
     seed_urls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     sitemap_timed_out: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    continued_from_job_id: Mapped[uuid.UUID | None] = mapped_column(
+    continued_from_job_id: Mapped[object] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
-    last_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    last_url: Mapped[object] = mapped_column(String(1024), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)

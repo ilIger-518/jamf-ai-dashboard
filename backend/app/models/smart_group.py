@@ -30,9 +30,9 @@ class SmartGroup(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     # JSON list of criterion dicts: [{name, priority, and_or, search_type, value}, ...]
-    criteria: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    criteria: Mapped[object] = mapped_column(JSONB, nullable=True)
     member_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    last_refreshed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_refreshed: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
 
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

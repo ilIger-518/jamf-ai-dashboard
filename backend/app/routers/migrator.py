@@ -178,8 +178,8 @@ def _strip_nonportable_fields(obj: object) -> object:
 def _strip_nonportable_fields_with_id_context(
     obj: object,
     *,
-    parent_key: str | None = None,
-    keep_id_under: set[str] | None = None,
+    parent_key: str = None,
+    keep_id_under: set[str] = None,
 ) -> object:
     """Strip non-portable fields while optionally preserving nested IDs for specific containers."""
     keep_id_under = keep_id_under or set()
@@ -223,7 +223,7 @@ def _collect_policy_dependency_refs(policy_detail: dict) -> tuple[dict[int, str]
     scripts: dict[int, str] = {}
     groups: dict[int, str] = {}
 
-    def _to_int(v: object) -> int | None:
+    def _to_int(v: object) -> int:
         try:
             if isinstance(v, bool) or not isinstance(v, (int, float, str)):
                 return None
@@ -231,7 +231,7 @@ def _collect_policy_dependency_refs(policy_detail: dict) -> tuple[dict[int, str]
         except (TypeError, ValueError):
             return None
 
-    def _walk(node: object, parent_key: str | None = None) -> None:
+    def _walk(node: object, parent_key: str = None) -> None:
         if isinstance(node, list):
             for item in node:
                 _walk(item, parent_key=parent_key)
@@ -259,7 +259,7 @@ def _remap_policy_reference_ids(
     *,
     script_id_map: dict[int, int],
     group_id_map: dict[int, int],
-    parent_key: str | None = None,
+    parent_key: str = None,
 ) -> object:
     """Rewrite policy nested reference IDs from source to target server IDs."""
     if isinstance(node, list):
@@ -347,8 +347,8 @@ async def _migrate_policy_dependencies(
     target_token: str,
     policy_detail: dict,
     include_static_members: bool,
-    allowed_script_ids: set[int] | None = None,
-    allowed_group_ids: set[int] | None = None,
+    allowed_script_ids: set[int] = None,
+    allowed_group_ids: set[int] = None,
 ) -> tuple[dict[int, int], dict[int, int], list[str]]:
     """Ensure referenced scripts/groups exist on target and return source->target ID maps."""
     script_refs, group_refs = _collect_policy_dependency_refs(policy_detail)
@@ -645,7 +645,7 @@ def _extract_category_names_from_payload(node: object) -> set[str]:
     """
     names: set[str] = set()
 
-    def _walk(value: object, key: str | None = None) -> None:
+    def _walk(value: object, key: str = None) -> None:
         if isinstance(value, dict):
             if key == "category":
                 if isinstance(value.get("name"), str) and value.get("name", "").strip():
@@ -719,11 +719,11 @@ def _clear_policy_scope_computers(payload: dict) -> bool:
 def _filter_policy_payload_dependencies(
     node: object,
     *,
-    allowed_script_ids: set[int] | None,
-    allowed_group_ids: set[int] | None,
-    allowed_categories: set[str] | None,
-    parent_key: str | None = None,
-) -> object | None:
+    allowed_script_ids: set[int] = None,
+    allowed_group_ids: set[int] = None,
+    allowed_categories: set[str] = None,
+    parent_key: str = None,
+) -> object:
     """Strip unselected policy dependencies from payload so target uses nothing for unchecked items."""
     if isinstance(node, list):
         filtered_items: list[object] = []

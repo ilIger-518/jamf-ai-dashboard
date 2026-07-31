@@ -25,7 +25,9 @@ import re
 import time
 import uuid
 from collections import deque
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.utils.datetime_compat import UTC
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse
 
 import httpx
@@ -307,7 +309,7 @@ async def _seed_from_sitemap(http: httpx.AsyncClient, start_url: str) -> tuple[l
 # ---------------------------------------------------------------------------
 
 
-def _detect_zoomin_api_host(html: str) -> str | None:
+def _detect_zoomin_api_host(html: str) -> str:
     """
     Extract the Zoomin backend API hostname from the embedded app config block.
     Looks for: "api":{"host":"learn-be.jamf.com"}  (or similar)
@@ -318,7 +320,7 @@ def _detect_zoomin_api_host(html: str) -> str | None:
 
 async def _try_zoomin_content(
     http: httpx.AsyncClient, url: str, page_html: str
-) -> tuple[str, str] | None:
+) -> tuple[str, str]:
     """
     If the URL matches a Zoomin documentation page pattern AND the page HTML
     contains a Zoomin config (or the domain is a known Zoomin host), fetch the

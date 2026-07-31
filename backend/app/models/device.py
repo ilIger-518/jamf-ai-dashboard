@@ -32,37 +32,37 @@ class Device(Base):
     )
 
     # Identity
-    udid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    management_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    udid: Mapped[object] = mapped_column(String(64), nullable=True, index=True)
+    management_id: Mapped[object] = mapped_column(String(64), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    serial_number: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    asset_tag: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    serial_number: Mapped[object] = mapped_column(String(64), nullable=True, index=True)
+    asset_tag: Mapped[object] = mapped_column(String(128), nullable=True)
 
     # Hardware
-    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    model_identifier: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    processor: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    ram_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model: Mapped[object] = mapped_column(String(128), nullable=True)
+    model_identifier: Mapped[object] = mapped_column(String(64), nullable=True)
+    processor: Mapped[object] = mapped_column(String(128), nullable=True)
+    ram_mb: Mapped[object] = mapped_column(Integer, nullable=True)
 
     # OS
-    os_version: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
-    os_build: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    os_version: Mapped[object] = mapped_column(String(32), nullable=True, index=True)
+    os_build: Mapped[object] = mapped_column(String(16), nullable=True)
 
     # Management
     is_managed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_supervised: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    last_contact: Mapped[datetime | None] = mapped_column(
+    last_contact: Mapped[object] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True
     )
-    last_enrollment: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_enrollment: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Organisational
-    username: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    department: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    building: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    site: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    username: Mapped[object] = mapped_column(String(128), nullable=True, index=True)
+    full_name: Mapped[object] = mapped_column(String(255), nullable=True)
+    email: Mapped[object] = mapped_column(String(255), nullable=True)
+    department: Mapped[object] = mapped_column(String(128), nullable=True)
+    building: Mapped[object] = mapped_column(String(128), nullable=True)
+    site: Mapped[object] = mapped_column(String(128), nullable=True)
 
     synced_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -92,9 +92,9 @@ class DeviceApplication(Base):
         UUID(as_uuid=True), ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    short_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    bundle_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    version: Mapped[object] = mapped_column(String(64), nullable=True)
+    short_version: Mapped[object] = mapped_column(String(64), nullable=True)
+    bundle_id: Mapped[object] = mapped_column(String(255), nullable=True)
 
     device: Mapped["Device"] = relationship("Device", back_populates="applications")
 
@@ -114,8 +114,8 @@ class DevicePolicy(Base):
         nullable=False,
         index=True,
     )
-    last_executed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    result: Mapped[str | None] = mapped_column(
+    last_executed: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[object] = mapped_column(
         String(32), nullable=True
     )  # "success" | "failed" | "pending"
 

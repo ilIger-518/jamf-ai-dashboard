@@ -16,7 +16,9 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.utils.datetime_compat import UTC
 from typing import Any
 
 import httpx

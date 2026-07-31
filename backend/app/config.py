@@ -1,5 +1,6 @@
 """Application settings loaded from environment variables via pydantic-settings."""
 
+from __future__ import annotations
 from functools import lru_cache
 
 from pydantic import field_validator

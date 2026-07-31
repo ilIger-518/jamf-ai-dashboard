@@ -5,7 +5,9 @@ import logging
 import os
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.utils.datetime_compat import UTC
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
