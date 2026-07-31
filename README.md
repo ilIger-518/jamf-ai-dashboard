@@ -41,7 +41,7 @@ cp .env.example .env
 # edit .env values
 
 # 3) Start services
-docker compose up -d
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 Then open `http://localhost:3000`.

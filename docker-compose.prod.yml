@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jamfdash}
+      POSTGRES_USER: ${POSTGRES_USER:-jamfdash}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  chroma:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+    volumes:
+      - chroma_data:/chroma/chroma
+    ports:
+      - "8001:8000"
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://jamfdash:changeme@postgres:5432/jamfdash}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CHROMA_HOST: ${CHROMA_HOST:-chroma}
+      CHROMA_PORT: ${CHROMA_PORT:-8000}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    depends_on:
+      - postgres
+      - redis
+      - chroma
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL:-http://backend:8000}
+      HOSTNAME: "0.0.0.0"
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+  updater:
+    build:
+      context: ./updater
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PROJECT_DIR: /project
+      GITHUB_REPO: ${GITHUB_REPO:-}
+      GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CHECK_INTERVAL_MINUTES: ${UPDATE_CHECK_INTERVAL_MINUTES:-60}
+      AUTO_UPDATE_ENABLED: ${AUTO_UPDATE_ENABLED:-false}
+      HEALTH_URL: http://backend:8000/api/v1/health
+      ROLLBACK_TIMEOUT_SECONDS: ${ROLLBACK_TIMEOUT_SECONDS:-90}
+      UPDATE_SERVICES: backend frontend
+    volumes:
+      - .:/project
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  chroma_data:
+  ollama_data:
