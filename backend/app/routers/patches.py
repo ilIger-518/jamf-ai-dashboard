@@ -19,8 +19,8 @@ async def list_patches(
     _: CurrentUser,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
-    search:str | None = Query(None),
-    server_id:uuid.UUID | None = Query(None),
+    search: str | None = Query(None),
+    server_id: uuid.UUID | None = Query(None),
 ) -> PagedPatches:
     q = select(PatchTitle)
     if search:

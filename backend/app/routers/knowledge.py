@@ -6,7 +6,6 @@ import os
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -36,26 +35,26 @@ router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 class ScrapeRequest(BaseModel):
     domain: str
-    max_pages:int | None = 100  # None = unlimited
-    max_size_mb:int | None = None  # e.g. 500 to stop after 500 MB of content
-    topic_filter:str | None = None  # e.g. "patch management" or "MDM enrollment"
-    knowledge_base_id:str | None = None
+    max_pages: int | None = 100  # None = unlimited
+    max_size_mb: int | None = None  # e.g. 500 to stop after 500 MB of content
+    topic_filter: str | None = None  # e.g. "patch management" or "MDM enrollment"
+    knowledge_base_id: str | None = None
 
 
 class ScrapeJobResponse(BaseModel):
     id: str
     domain: str
-    max_pages:int | None
-    max_size_mb:int | None
-    topic_filter:str | None
-    knowledge_base_id:str | None
-    knowledge_base_name:str | None
-    knowledge_base_dimension_tag:str | None
+    max_pages: int | None
+    max_size_mb: int | None
+    topic_filter: str | None
+    knowledge_base_id: str | None
+    knowledge_base_name: str | None
+    knowledge_base_dimension_tag: str | None
     status: str
     pages_scraped: int
     pages_found: int
     bytes_scraped: int
-    error:str | None
+    error: str | None
     pause_requested: bool
     cancel_requested: bool
     cpu_cap_mode: str
@@ -63,17 +62,17 @@ class ScrapeJobResponse(BaseModel):
     seed_mode: str
     seed_urls: int
     sitemap_timed_out: bool
-    continued_from_job_id:str | None
-    last_url:str | None
+    continued_from_job_id: str | None
+    last_url: str | None
     created_at: str
-    started_at:str | None
-    finished_at:str | None
+    started_at: str | None
+    finished_at: str | None
 
     @classmethod
     def from_orm(
         cls,
         job: ScrapeJob,
-        knowledge_base:KnowledgeBase | None = None,
+        knowledge_base: KnowledgeBase | None = None,
     ) -> "ScrapeJobResponse":
         return cls(
             id=str(job.id),
@@ -113,16 +112,16 @@ class SourceResponse(BaseModel):
     doc_type: str
     chunk_count: int
     size_bytes: int
-    knowledge_base_id:str | None
-    knowledge_base_name:str | None
-    knowledge_base_dimension_tag:str | None
+    knowledge_base_id: str | None
+    knowledge_base_name: str | None
+    knowledge_base_dimension_tag: str | None
     ingested_at: str
 
     @classmethod
     def from_orm(
         cls,
         doc: KnowledgeDocument,
-        knowledge_base:KnowledgeBase | None = None,
+        knowledge_base: KnowledgeBase | None = None,
     ) -> "SourceResponse":
         return cls(
             id=str(doc.id),
@@ -145,7 +144,7 @@ class SourcePreviewResponse(BaseModel):
     doc_type: str
     chunk_count: int
     size_bytes: int
-    knowledge_base_name:str | None
+    knowledge_base_name: str | None
     preview_text: str
 
 
@@ -154,7 +153,7 @@ class SourceCleanupDuplicateRecord(BaseModel):
     title: str
     source: str
     ingested_at: str
-    knowledge_base_name:str | None
+    knowledge_base_name: str | None
 
 
 class SourceCleanupDuplicateGroup(BaseModel):
@@ -185,24 +184,24 @@ class SourceListResponse(BaseModel):
 
 class KnowledgeBaseCreateRequest(BaseModel):
     name: str
-    description:str | None = None
-    collection_name:str | None = None
-    embedding_provider:str | None = None
-    embedding_model:str | None = None
-    embedding_dimension:int | None = None
-    dimension_tag:str | None = None
+    description: str | None = None
+    collection_name: str | None = None
+    embedding_provider: str | None = None
+    embedding_model: str | None = None
+    embedding_dimension: int | None = None
+    dimension_tag: str | None = None
     is_default: bool = False
 
 
 class KnowledgeBaseResponse(BaseModel):
     id: str
     name: str
-    description:str | None
+    description: str | None
     collection_name: str
-    embedding_provider:str | None
-    embedding_model:str | None
-    embedding_dimension:int | None
-    dimension_tag:str | None
+    embedding_provider: str | None
+    embedding_model: str | None
+    embedding_dimension: int | None
+    dimension_tag: str | None
     is_default: bool
     source_count: int = 0
     total_size_bytes: int = 0
@@ -230,8 +229,8 @@ class KnowledgeBaseResponse(BaseModel):
 
 class ScrapeControlRequest(BaseModel):
     action: str  # pause | resume | cancel
-    cpu_cap_mode:str | None = None  # total | core
-    cpu_cap_percent:int | None = None
+    cpu_cap_mode: str | None = None  # total | core
+    cpu_cap_percent: int | None = None
 
 
 class ScrapeJobLogResponse(BaseModel):
@@ -558,13 +557,13 @@ async def download_all_knowledge_bases(_: CurrentUser) -> Response:
             .all()
         )
 
-    docs_by_kb:Optional[dict[uuid.UUID], list[KnowledgeDocument]] = {}
+    docs_by_kb: dict[uuid.UUID, list[KnowledgeDocument]] = {}
     for doc in docs:
-        docs_by_kb.setdefault(doc.knowledge_base_id, []).append(doc)
+        docs_by_kb.setdefault(doc.knowledge_base_id, []).append(doc)  # type: ignore[arg-type]
 
-    jobs_by_kb:Optional[dict[uuid.UUID], list[ScrapeJob]] = {}
+    jobs_by_kb: dict[uuid.UUID, list[ScrapeJob]] = {}
     for job in jobs:
-        jobs_by_kb.setdefault(job.knowledge_base_id, []).append(job)
+        jobs_by_kb.setdefault(job.knowledge_base_id, []).append(job)  # type: ignore[arg-type]
 
     payload = {
         "exported_at": datetime.now(UTC).isoformat(),
@@ -885,7 +884,7 @@ async def continue_scrape_job(
 async def get_scrape_job_logs(
     job_id: str,
     _: CurrentUser,
-    after_id:str | None = None,
+    after_id: str | None = None,
     limit: int = 1000,
 ) -> list[ScrapeJobLogResponse]:
     """Return newest log lines for a scrape job; optionally only entries after a given id."""
@@ -1012,8 +1011,8 @@ async def delete_scrape_job(job_id: str, _: ManageKnowledgeUser) -> None:
 @router.get("/sources", response_model=SourceListResponse)
 async def list_sources(
     _: CurrentUser,
-    knowledge_base_id:str | None = None,
-    search:str | None = Query(default=None),
+    knowledge_base_id: str | None = None,
+    search: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
 ) -> SourceListResponse:

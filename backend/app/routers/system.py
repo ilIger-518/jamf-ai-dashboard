@@ -22,7 +22,7 @@ class UpdaterConfigPayload(BaseModel):
 
 
 class DockerLogsResponse(BaseModel):
-    service:str | None
+    service: str | None
     tail: int
     services: list[str]
     logs: str
@@ -50,17 +50,17 @@ class AIConfigResponse(BaseModel):
     custom_base_url: str
     custom_model: str
     custom_api_key_set: bool
-    custom_api_key_masked:str | None = None
+    custom_api_key_masked: str | None = None
     custom_chat_api_key_set: bool
-    custom_chat_api_key_masked:str | None = None
+    custom_chat_api_key_masked: str | None = None
     custom_scrape_model: str
     custom_scrape_api_key_set: bool
-    custom_scrape_api_key_masked:str | None = None
+    custom_scrape_api_key_masked: str | None = None
     local_embedding_model: str
     custom_embedding_model: str
     custom_embedding_api_key_set: bool
-    custom_embedding_api_key_masked:str | None = None
-    message:str | None = None
+    custom_embedding_api_key_masked: str | None = None
+    message: str | None = None
 
 
 class ServerLogFileInfo(BaseModel):
@@ -73,15 +73,15 @@ class ServerLogFileInfo(BaseModel):
 
 class ServerLogsIndexResponse(BaseModel):
     log_dir: str
-    current_log_file:str | None
+    current_log_file: str | None
     files: list[ServerLogFileInfo]
 
 
 async def _updater(
     method: str,
     path: str,
-    payload:dict | None = None,
-    params:dict | None = None,
+    payload: dict | None = None,
+    params: dict | None = None,
 ) -> dict:
     settings = get_settings()
     url = f"{settings.updater_url}{path}"
@@ -131,7 +131,7 @@ async def apply_update(_: AdminUser) -> dict:
 )
 async def get_docker_logs(
     _: AdminUser,
-    service:str | None = None,
+    service: str | None = None,
     tail: int = 400,
 ) -> dict:
     return await _updater(
@@ -233,7 +233,7 @@ async def download_server_log(filename: str, _: CurrentUser) -> FileResponse:
     if safe_name != filename or not safe_name.endswith(".log"):
         raise HTTPException(status_code=400, detail="Invalid log filename")
 
-    log_path:Path | None = None
+    log_path: Path | None = None
     for log_dir in candidate_dirs:
         candidate = (log_dir / safe_name).resolve()
         if candidate.parent != log_dir:

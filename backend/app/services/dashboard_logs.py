@@ -14,14 +14,14 @@ async def write_dashboard_log(
     action: str,
     message: str,
     level: str = "info",
-    method:str | None = None,
-    path:str | None = None,
-    status_code:int | None = None,
-    user_id:uuid.UUID | None = None,
-    username:str | None = None,
-    ip_address:str | None = None,
-    user_agent:str | None = None,
-    details:dict | None = None,
+    method: str | None = None,
+    path: str | None = None,
+    status_code: int | None = None,
+    user_id: uuid.UUID | None = None,
+    username: str | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    details: dict | None = None,
 ) -> None:
     """Persist a dashboard log entry.
 

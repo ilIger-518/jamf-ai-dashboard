@@ -12,13 +12,13 @@ class DDMDeviceListItem(BaseModel):
     id: uuid.UUID
     jamf_id: int
     name: str
-    serial_number:str | None
-    model:str | None
-    os_version:str | None
-    username:str | None
-    department:str | None
-    last_contact:datetime | None
-    management_id:str | None
+    serial_number: str | None
+    model: str | None
+    os_version: str | None
+    username: str | None
+    department: str | None
+    last_contact: datetime | None
+    management_id: str | None
     server_id: uuid.UUID
 
     model_config = {"from_attributes": True}
@@ -35,9 +35,9 @@ class DDMStatusItem(BaseModel):
     """A single DDM status-item entry returned by the Jamf Pro API."""
 
     identifier: str
-    valid:str | None = None
-    reasons:list[dict] | None = None
-    client:dict | None = None
+    valid: str | None = None
+    reasons: list[dict] | None = None
+    client: dict | None = None
 
 
 class DDMStatusResponse(BaseModel):

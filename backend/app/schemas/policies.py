@@ -11,11 +11,11 @@ class PolicyResponse(BaseModel):
     jamf_id: int
     name: str
     enabled: bool
-    category:str | None
-    trigger:str | None
-    scope_description:str | None
+    category: str | None
+    trigger: str | None
+    scope_description: str | None
     server_id: uuid.UUID
-    server_url:str | None = None
+    server_url: str | None = None
     synced_at: datetime
 
     model_config = {"from_attributes": True}

@@ -51,9 +51,7 @@ class Device(Base):
     # Management
     is_managed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_supervised: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    last_contact: Mapped[object] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
-    )
+    last_contact: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     last_enrollment: Mapped[object] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Organisational

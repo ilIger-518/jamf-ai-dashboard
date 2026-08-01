@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, model_validator
 class PackageSyncItem(BaseModel):
     id: int
     name: str
-    filename:str | None = None
-    category:str | None = None
+    filename: str | None = None
+    category: str | None = None
 
 
 class PackageSyncRequest(BaseModel):
@@ -31,10 +31,10 @@ class PackageSyncItemResult(BaseModel):
     package_id: int
     name: str
     status: Literal["created", "skipped", "failed"]
-    message:str | None = None
+    message: str | None = None
     logs: list[str] = []
-    file_status:Literal["transferred", "skipped", "failed"] | None = None
-    file_message:str | None = None
+    file_status: Literal["transferred", "skipped", "failed"] | None = None
+    file_message: str | None = None
 
 
 class PackageSyncServerResult(BaseModel):

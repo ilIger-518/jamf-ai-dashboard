@@ -20,7 +20,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 async def get_stats(
     db: DBSession,
     _: CurrentUser,
-    server_id:uuid.UUID | None = Query(None),
+    server_id: uuid.UUID | None = Query(None),
 ) -> DashboardStats:
     # ── Combined device counts (one query) ─────────────────────────────────
     device_q = select(

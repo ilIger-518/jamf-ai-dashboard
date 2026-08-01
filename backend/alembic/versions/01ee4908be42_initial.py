@@ -15,9 +15,9 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "01ee4908be42"
-down_revision:Optional[str] = None
-branch_labels: str | Optional[Sequence[str]] = None
-depends_on: str | Optional[Sequence[str]] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

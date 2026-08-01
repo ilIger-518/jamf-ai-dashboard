@@ -141,7 +141,7 @@ async def login(body: LoginRequest, response: Response, db: DBSession) -> TokenR
 )
 async def refresh_token(
     response: Response,
-    refresh_token:str | None = Cookie(default=None),
+    refresh_token: str | None = Cookie(default=None),
 ) -> TokenResponse:
     redis = await get_redis()
     if not refresh_token:
@@ -247,9 +247,9 @@ async def microsoft_sso_start() -> RedirectResponse:
 @router.get("/sso/microsoft/callback", summary="Microsoft SSO callback")
 async def microsoft_sso_callback(
     db: DBSession,
-    code:str | None = None,
-    state:str | None = None,
-    error:str | None = None,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
 ) -> RedirectResponse:
     settings = get_settings()
     if error:

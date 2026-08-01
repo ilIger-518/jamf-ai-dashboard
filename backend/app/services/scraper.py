@@ -190,7 +190,7 @@ async def _fetch_candidate_page(
     html = resp.text
     text = _extract_text(html)
     zoomin_title = ""
-    topic_html_for_links:str | None = None
+    topic_html_for_links: str | None = None
 
     if len(text) < 300:
         zoomin = await _try_zoomin_content(http, url, html)
@@ -317,9 +317,7 @@ def _detect_zoomin_api_host(html: str) -> str:
     return m.group(1) if m else None
 
 
-async def _try_zoomin_content(
-    http: httpx.AsyncClient, url: str, page_html: str
-) -> tuple[str, str]:
+async def _try_zoomin_content(http: httpx.AsyncClient, url: str, page_html: str) -> tuple[str, str]:
     """
     If the URL matches a Zoomin documentation page pattern AND the page HTML
     contains a Zoomin config (or the domain is a known Zoomin host), fetch the
@@ -410,8 +408,8 @@ async def run_scrape_job(job_id: str) -> None:
     logger.info("Starting scrape job %s", job_id)
     await _append_job_log(job_id, "Job started")
 
-    continued_from_job_id:uuid.UUID | None = None
-    knowledge_base_id:uuid.UUID | None = None
+    continued_from_job_id: uuid.UUID | None = None
+    knowledge_base_id: uuid.UUID | None = None
     knowledge_collection_name = "jamf_knowledge"
     knowledge_base_name = "default"
 
@@ -684,7 +682,7 @@ async def run_scrape_job(job_id: str) -> None:
                         text.encode("utf-8", errors="replace")
                     ).hexdigest()
 
-                    existing:KnowledgeDocument | None = None
+                    existing: KnowledgeDocument | None = None
                     async with AsyncSessionLocal() as session:
                         existing = (
                             await session.execute(

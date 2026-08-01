@@ -1,6 +1,5 @@
 """Redis client singleton."""
 
-
 from redis.asyncio import Redis
 
 from app.config import get_settings

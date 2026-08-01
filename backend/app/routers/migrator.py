@@ -961,7 +961,10 @@ async def migrate_objects(
                     )
 
                 if body.entity_type in {"policy", "script"}:
-                    created_categories, unauthorized_categories = await _ensure_payload_categories_exist(
+                    (
+                        created_categories,
+                        unauthorized_categories,
+                    ) = await _ensure_payload_categories_exist(
                         client,
                         target.url.rstrip("/"),
                         target_token,

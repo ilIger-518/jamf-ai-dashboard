@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # ── CORS ────────────────────────────────────────────────────
     cors_origins: list[str] = ["http://localhost:3000"]
-    cors_origin_regex:str | None = r"^https?://([a-zA-Z0-9.-]+)(:\\d+)?$"
+    cors_origin_regex: str | None = r"^https?://([a-zA-Z0-9.-]+)(:\\d+)?$"
 
     # ── Cookie ──────────────────────────────────────────────────
     cookie_secure: bool = False  # set True in production (requires HTTPS)
@@ -66,8 +66,8 @@ class Settings(BaseSettings):
     # ── Microsoft SSO (OIDC) ────────────────────────────────────
     microsoft_sso_enabled: bool = False
     microsoft_tenant_id: str = "common"
-    microsoft_client_id:str | None = None
-    microsoft_client_secret:str | None = None
+    microsoft_client_id: str | None = None
+    microsoft_client_secret: str | None = None
     microsoft_redirect_uri: str = "http://localhost:8000/api/v1/auth/sso/microsoft/callback"
     frontend_base_url: str = "http://localhost:3000"
 
