@@ -1,9 +1,13 @@
 import uuid
+from datetime import datetime
 
 import pytest
+from jose import jwt
 from redis.asyncio import Redis
 
+from app.config import get_settings
 from app.services.auth import AuthService
+from app.utils.datetime_compat import UTC, timedelta
 
 
 @pytest.mark.asyncio
@@ -50,3 +54,28 @@ async def test_refresh_token_validation_checks_redis_storage(monkeypatch: pytest
 
     redis.values["refresh_token:" + str(user_id)] = "different-token"
     assert await AuthService.validate_refresh_token(refresh_token, redis) is None
+
+
+@pytest.mark.asyncio
+async def test_expired_tokens_are_rejected() -> None:
+    user_id = uuid.uuid4()
+    settings = get_settings()
+
+    expired_access_payload = {
+        "sub": str(user_id),
+        "exp": datetime.now(UTC) - timedelta(seconds=60),
+        "iat": datetime.now(UTC) - timedelta(seconds=120),
+        "type": "access",
+    }
+    expired_refresh_payload = {
+        "sub": str(user_id),
+        "exp": datetime.now(UTC) - timedelta(seconds=60),
+        "iat": datetime.now(UTC) - timedelta(seconds=120),
+        "type": "refresh",
+    }
+
+    expired_access_token = jwt.encode(expired_access_payload, settings.secret_key, algorithm=settings.jwt_algorithm)
+    expired_refresh_token = jwt.encode(expired_refresh_payload, settings.secret_key, algorithm=settings.jwt_algorithm)
+
+    assert AuthService._decode_token(expired_access_token) is None
+    assert AuthService._decode_token(expired_refresh_token) is None
