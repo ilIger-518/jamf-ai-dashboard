@@ -12,13 +12,15 @@ from app.database import AsyncSessionLocal
 
 class DependencyStatus(BaseModel):
     status: str
-    detail:Optional[str] = None
+    detail: Optional[str] = None
 
 
 class HealthResponse(BaseModel):
     status: str
     database: DependencyStatus
     redis: DependencyStatus
+    uptime_seconds: int
+
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -27,8 +29,8 @@ router = APIRouter(prefix="/health", tags=["health"])
 async def health() -> HealthResponse:
     db_status = "ok"
     redis_status = "ok"
-    db_detail:Optional[str] = None
-    redis_detail:Optional[str] = None
+    db_detail: Optional[str] = None
+    redis_detail: Optional[str] = None
 
     try:
         async with AsyncSessionLocal() as session:
@@ -52,5 +54,5 @@ async def health() -> HealthResponse:
         status=overall,
         database=DependencyStatus(status=db_status, detail=db_detail),
         redis=DependencyStatus(status=redis_status, detail=redis_detail),
+        uptime_seconds=0,
     )
-from typing import Optional
