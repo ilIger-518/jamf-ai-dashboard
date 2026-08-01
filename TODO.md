@@ -698,7 +698,7 @@
 ### 8.5 Observability
 - [ ] Deploy Prometheus + Grafana via Docker Compose for metrics visualization
 - [ ] Create Grafana dashboard for: API request rates, error rates, sync durations, AI response latencies, DB query times
-- [ ] Configure structured log output to stdout (for log aggregation via Docker log driver or Loki)
+- [x] Configure structured log output to stdout (for log aggregation via Docker log driver or Loki)
 - [ ] Add `/api/health` detailed endpoint: db connectivity, redis connectivity, Ollama connectivity, last sync status
 
 ### 8.6 CI/CD
