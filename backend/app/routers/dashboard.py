@@ -1,7 +1,6 @@
 """Dashboard statistics router."""
 
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Query
 from sqlalchemy import func, select
@@ -21,7 +20,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 async def get_stats(
     db: DBSession,
     _: CurrentUser,
-    server_id:Optional[uuid.UUID] = Query(None),
+    server_id:uuid.UUID | None = Query(None),
 ) -> DashboardStats:
     # ── Combined device counts (one query) ─────────────────────────────────
     device_q = select(
@@ -113,4 +112,3 @@ async def get_stats(
         os_distribution=os_distribution,
         top_patches=top_patches,
     )
-from typing import Optional

@@ -1,7 +1,6 @@
 """Devices router."""
 
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -20,8 +19,8 @@ async def list_devices(
     _: CurrentUser,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
-    search:Optional[str] = Query(None),
-    server_id:Optional[uuid.UUID] = Query(None),
+    search:str | None = Query(None),
+    server_id:uuid.UUID | None = Query(None),
     managed_only: bool = Query(False),
 ) -> PagedDevices:
     q = select(Device)
@@ -63,4 +62,3 @@ async def get_device(device_id: uuid.UUID, db: DBSession, _: CurrentUser) -> Dev
     if device.server:
         response.server_url = device.server.url.rstrip("/")
     return response
-from typing import Optional

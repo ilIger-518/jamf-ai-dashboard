@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Iterable
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import ValidationError
@@ -18,7 +18,7 @@ from app.schemas.logs import DashboardLogResponse, LogCategory
 router = APIRouter(prefix="/logs", tags=["logs"])
 
 
-def _normalize_details(details: object) ->Optional[dict]:
+def _normalize_details(details: object) ->dict | None:
     if details is None:
         return None
     if isinstance(details, dict):
@@ -62,7 +62,7 @@ def _serialize_logs(items: Iterable[DashboardLog]) -> list[DashboardLogResponse]
 async def list_logs(
     db: Annotated[AsyncSession, Depends(get_db)],
     _: Annotated[User, Depends(require_permission("settings.manage"))],
-    category:Optional[LogCategory] = Query(default=None),
+    category:LogCategory | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[DashboardLogResponse]:
     # Skip legacy rows left behind by older dashboard_logs schemas that do not satisfy

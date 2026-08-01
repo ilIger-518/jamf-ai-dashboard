@@ -1,7 +1,7 @@
 """Live Jamf assets router for scripts and packages."""
 
 import uuid
-from typing import Annotated, Optional
+from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -55,7 +55,7 @@ async def _get_oauth_token(
     return resp.json()["access_token"]
 
 
-def _extract_category_name(raw_category: object) ->Optional[str]:
+def _extract_category_name(raw_category: object) ->str | None:
     if isinstance(raw_category, dict):
         return raw_category.get("name")
     if isinstance(raw_category, str):

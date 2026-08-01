@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -13,13 +12,13 @@ class DDMDeviceListItem(BaseModel):
     id: uuid.UUID
     jamf_id: int
     name: str
-    serial_number:Optional[str]
-    model:Optional[str]
-    os_version:Optional[str]
-    username:Optional[str]
-    department:Optional[str]
-    last_contact:Optional[datetime]
-    management_id:Optional[str]
+    serial_number:str | None
+    model:str | None
+    os_version:str | None
+    username:str | None
+    department:str | None
+    last_contact:datetime | None
+    management_id:str | None
     server_id: uuid.UUID
 
     model_config = {"from_attributes": True}
@@ -36,9 +35,9 @@ class DDMStatusItem(BaseModel):
     """A single DDM status-item entry returned by the Jamf Pro API."""
 
     identifier: str
-    valid:Optional[str] = None
-    reasons:Optional[list[dict]] = None
-    client:Optional[dict] = None
+    valid:str | None = None
+    reasons:list[dict] | None = None
+    client:dict | None = None
 
 
 class DDMStatusResponse(BaseModel):
@@ -56,4 +55,3 @@ class DDMSyncResponse(BaseModel):
     device_id: uuid.UUID
     management_id: str
     message: str
-from typing import Optional

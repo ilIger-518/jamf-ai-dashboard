@@ -1,7 +1,6 @@
 """Smart groups router."""
 
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -20,8 +19,8 @@ async def list_smart_groups(
     _: CurrentUser,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
-    search:Optional[str] = Query(None),
-    server_id:Optional[uuid.UUID] = Query(None),
+    search:str | None = Query(None),
+    server_id:uuid.UUID | None = Query(None),
 ) -> PagedSmartGroups:
     q = select(SmartGroup)
     if search:
@@ -55,4 +54,3 @@ async def get_smart_group(group_id: uuid.UUID, db: DBSession, _: CurrentUser) ->
     if group.server:
         response.server_url = group.server.url.rstrip("/")
     return response
-from typing import Optional

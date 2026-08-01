@@ -1,7 +1,6 @@
 """Health check router."""
 
 import inspect
-from typing import Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -12,7 +11,7 @@ from app.database import AsyncSessionLocal
 
 class DependencyStatus(BaseModel):
     status: str
-    detail: Optional[str] = None
+    detail: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -29,8 +28,8 @@ router = APIRouter(prefix="/health", tags=["health"])
 async def health() -> HealthResponse:
     db_status = "ok"
     redis_status = "ok"
-    db_detail: Optional[str] = None
-    redis_detail: Optional[str] = None
+    db_detail: str | None = None
+    redis_detail: str | None = None
 
     try:
         async with AsyncSessionLocal() as session:

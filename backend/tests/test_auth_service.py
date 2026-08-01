@@ -3,7 +3,6 @@ from datetime import datetime
 
 import pytest
 from jose import jwt
-from redis.asyncio import Redis
 
 from app.config import get_settings
 from app.services.auth import AuthService

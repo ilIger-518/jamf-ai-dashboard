@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, computed_field
 
@@ -11,12 +10,12 @@ class PatchResponse(BaseModel):
     id: uuid.UUID
     jamf_id: int
     software_title: str
-    current_version:Optional[str]
-    latest_version:Optional[str]
+    current_version:str | None
+    latest_version:str | None
     patched_count: int
     unpatched_count: int
     server_id: uuid.UUID
-    server_url:Optional[str] = None
+    server_url:str | None = None
     synced_at: datetime
 
     @computed_field  # type: ignore[misc]
@@ -40,4 +39,3 @@ class PagedPatches(BaseModel):
     total: int
     page: int
     per_page: int
-from typing import Optional
