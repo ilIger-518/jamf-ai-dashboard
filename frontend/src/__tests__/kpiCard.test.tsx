@@ -19,4 +19,21 @@ describe("KpiCard", () => {
     expect(screen.getByText("42")).toBeTruthy();
     expect(screen.getByText("24 managed")).toBeTruthy();
   });
+
+  it("highlights alert values when the card is marked as alerting", () => {
+    render(
+      <KpiCard
+        label="Non-Compliant"
+        value={7}
+        sub="Needs review"
+        icon={Monitor}
+        color="bg-red-50"
+        alert
+      />,
+    );
+
+    expect(screen.getByText("Non-Compliant")).toBeTruthy();
+    expect(screen.getByText("7")).toBeTruthy();
+    expect(screen.getByText("Needs review")).toBeTruthy();
+  });
 });
