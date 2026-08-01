@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 
 from app.cache import close_redis, get_redis
 from app.config import get_settings
+from app.logging_config import configure_logging
 from app.database import AsyncSessionLocal, engine
 from app.models.scrape_job import ScrapeJob
 from app.models.user import User
@@ -111,6 +112,11 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+
+    # Configure structured JSON logging to stdout before anything else so that
+    # all subsequent log calls (structlog and stdlib) emit newline-delimited
+    # JSON consumable by the Docker log driver or a Loki/Promtail agent.
+    configure_logging(log_level=settings.log_level)
 
     application = FastAPI(
         title="Jamf AI Dashboard API",
