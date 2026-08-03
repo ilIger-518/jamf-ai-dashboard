@@ -15,12 +15,12 @@ class KnowledgeBase(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
-    description: Mapped[object] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     collection_name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
-    embedding_provider: Mapped[object] = mapped_column(String(16), nullable=True)
-    embedding_model: Mapped[object] = mapped_column(String(255), nullable=True)
-    embedding_dimension: Mapped[object] = mapped_column(Integer, nullable=True)
-    dimension_tag: Mapped[object] = mapped_column(String(64), nullable=True)
+    embedding_provider: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    embedding_dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dimension_tag: Mapped[str | None] = mapped_column(String(64), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
