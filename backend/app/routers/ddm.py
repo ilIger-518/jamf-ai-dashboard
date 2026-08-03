@@ -7,7 +7,6 @@ Provides endpoints to:
 """
 
 import uuid
-from typing import Optional
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query, status
@@ -22,7 +21,6 @@ from app.schemas.ddm import DDMDeviceListItem, DDMStatusResponse, DDMSyncRespons
 from app.services.encryption import decrypt
 from app.services.jamf.sync import _get_oauth_token
 
-from typing import Optional
 router = APIRouter(prefix="/ddm", tags=["ddm"])
 
 _TIMEOUT = 30.0
@@ -64,8 +62,8 @@ async def list_ddm_devices(
     _: CurrentUser,
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
-    search:Optional[str] = Query(None),
-    server_id:Optional[uuid.UUID] = Query(None),
+    search: str | None = Query(None),
+    server_id: uuid.UUID | None = Query(None),
 ) -> PagedDDMDevices:
     """List devices that have a management_id (DDM-capable devices)."""
     q = select(Device).where(Device.management_id.is_not(None))

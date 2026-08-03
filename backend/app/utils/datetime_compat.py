@@ -1,7 +1,7 @@
 """Compatibility helpers for datetime APIs across Python versions."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-UTC = timezone.utc
+UTC = UTC
 
 __all__ = ["UTC", "datetime", "timedelta"]

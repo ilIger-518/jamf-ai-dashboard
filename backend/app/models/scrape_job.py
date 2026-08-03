@@ -37,9 +37,7 @@ class ScrapeJob(Base):
     seed_mode: Mapped[str] = mapped_column(String(16), default="start_url", nullable=False)
     seed_urls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     sitemap_timed_out: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    continued_from_job_id: Mapped[object] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    continued_from_job_id: Mapped[object] = mapped_column(UUID(as_uuid=True), nullable=True)
     last_url: Mapped[object] = mapped_column(String(1024), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

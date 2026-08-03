@@ -5,8 +5,6 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from app.utils.datetime_compat import UTC
-
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
@@ -44,6 +42,7 @@ from app.services.auth import AuthService
 from app.services.dashboard_logs import write_dashboard_log
 from app.services.jamf.sync import sync_all_servers
 from app.services.llm import describe_embedding_target, describe_llm_target
+from app.utils.datetime_compat import UTC
 
 logger = structlog.get_logger(__name__)
 

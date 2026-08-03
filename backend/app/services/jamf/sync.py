@@ -17,9 +17,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-
-from app.utils.datetime_compat import UTC
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from sqlalchemy import delete, select, text
@@ -33,6 +31,7 @@ from app.models.policy import Policy
 from app.models.server import JamfServer
 from app.models.smart_group import SmartGroup
 from app.services.encryption import decrypt
+from app.utils.datetime_compat import UTC
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +68,7 @@ async def _set_status(server_id: str, status: str) -> None:
     await redis.set(_redis_key(server_id), status, ex=_SYNC_STATUS_TTL)
 
 
-async def get_sync_result(server_id: str) ->Optional[dict]:
+async def get_sync_result(server_id: str) -> dict | None:
     """Return the latest sync summary payload from Redis, if available."""
     redis = await get_redis()
     val = await redis.get(_redis_result_key(server_id))
@@ -116,7 +115,7 @@ async def _get_oauth_token(
 # ---------------------------------------------------------------------------
 
 
-def _parse_dt(value:Optional[str]) ->Optional[datetime]:
+def _parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
@@ -249,7 +248,7 @@ async def _purge_missing_by_jamf_id(db_session, model, server_id, seen_ids: set[
 
 async def _sync_computers_v2(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) ->Optional[tuple[int, int, int]]:
+) -> tuple[int, int, int] | None:
     """Try the v2 computers endpoint. Returns upsert count or None if not available."""
     base_url = server.url
     headers = {"Authorization": f"Bearer {token}"}
@@ -340,7 +339,7 @@ async def _sync_computers_v2(
 
 async def _sync_computers_v1(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) ->Optional[tuple[int, int, int]]:
+) -> tuple[int, int, int] | None:
     """Try the v1 computers-preview endpoint. Returns count or None."""
     base_url = server.url
     headers = {"Authorization": f"Bearer {token}"}
@@ -428,7 +427,7 @@ async def _fetch_computer_detail_classic(
     token: str,
     jamf_id: int,
     semaphore: asyncio.Semaphore,
-) ->Optional[dict]:
+) -> dict | None:
     async with semaphore:
         try:
             resp = await client.get(
@@ -544,7 +543,7 @@ async def _sync_computers(
 # ---------------------------------------------------------------------------
 
 
-def _scope_description_from_modern(scope: dict) ->Optional[str]:
+def _scope_description_from_modern(scope: dict) -> str | None:
     """Build a human-readable scope string from the Jamf Pro REST API scope object."""
     parts: list[str] = []
     if scope.get("allComputers") or scope.get("all_computers"):
@@ -566,7 +565,7 @@ async def _fetch_policy_detail_v1(
     token: str,
     policy_id: str,
     semaphore: asyncio.Semaphore,
-) ->Optional[dict]:
+) -> dict | None:
     """Fetch a single policy's full detail from the Jamf Pro REST API."""
     async with semaphore:
         try:
@@ -589,7 +588,7 @@ async def _fetch_policy_detail_v1(
 
 async def _sync_policies_v1(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) ->Optional[tuple[int, int, int]]:
+) -> tuple[int, int, int] | None:
     """Sync policies via the Jamf Pro REST API (/api/v1/policies).
 
     Returns the upsert count, or None if the endpoint is not available.
@@ -688,7 +687,7 @@ async def _fetch_policy_detail_classic(
     token: str,
     policy_id: int,
     semaphore: asyncio.Semaphore,
-) ->Optional[dict]:
+) -> dict | None:
     """Fetch a single policy's full detail from the Classic API."""
     async with semaphore:
         try:
@@ -824,7 +823,7 @@ async def _fetch_smart_group_detail(
     token: str,
     group_id: int,
     semaphore: asyncio.Semaphore,
-) ->Optional[dict]:
+) -> dict | None:
     async with semaphore:
         try:
             resp = await client.get(
@@ -842,7 +841,7 @@ async def _fetch_smart_group_detail(
 
 async def _sync_smart_groups(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) ->Optional[tuple[int, int, int, str]]:
+) -> tuple[int, int, int, str] | None:
     """Sync computer smart groups via the Classic API.
 
     Returns ``(created, updated, deleted, warning)`` where *warning* is a
@@ -959,7 +958,7 @@ async def _sync_smart_groups(
 
 async def _sync_patches_modern(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) ->Optional[tuple[int, int, int]]:
+) -> tuple[int, int, int] | None:
     """Sync patch titles via /api/v2/patch-software-title-configurations.
 
     Returns upsert count, or None if endpoint is unavailable.

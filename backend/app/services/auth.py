@@ -2,8 +2,6 @@
 
 import uuid
 from datetime import datetime
-
-from app.utils.datetime_compat import UTC, timedelta
 from typing import Any
 
 import bcrypt as _bcrypt
@@ -14,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models.user import User
+from app.utils.datetime_compat import UTC, timedelta
 
 REFRESH_TOKEN_PREFIX = "refresh_token:"
 

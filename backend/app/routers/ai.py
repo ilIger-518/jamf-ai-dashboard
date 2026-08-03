@@ -5,10 +5,8 @@ import logging
 import re
 import uuid as uuid_lib
 from datetime import datetime
-
-from app.utils.datetime_compat import UTC
 from threading import Lock
-from typing import Literal, Optional
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
@@ -28,6 +26,7 @@ from app.models.smart_group import SmartGroup
 from app.services.encryption import decrypt
 from app.services.llm import complete_chat, stream_chat
 from app.services.vector_store import query_similar_multi
+from app.utils.datetime_compat import UTC
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +85,10 @@ class MessageResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    session_id:Optional[str] = None
+    session_id: str | None = None
     bot_mode: Literal["rag_readonly", "policy_builder"] = "rag_readonly"
-    target_server_id:Optional[str] = None
-    knowledge_base_ids:Optional[list[str]] = None
+    target_server_id: str | None = None
+    knowledge_base_ids: list[str] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -149,12 +148,12 @@ def _set_pending_action(user_id: object, session_id: str, action: dict) -> None:
         _PENDING_ACTIONS[_pending_key(user_id, session_id)] = action
 
 
-def _peek_pending_action(user_id: object, session_id: str) ->Optional[dict]:
+def _peek_pending_action(user_id: object, session_id: str) -> dict | None:
     with _PENDING_ACTIONS_LOCK:
         return _PENDING_ACTIONS.get(_pending_key(user_id, session_id))
 
 
-def _pop_pending_action(user_id: object, session_id: str) ->Optional[dict]:
+def _pop_pending_action(user_id: object, session_id: str) -> dict | None:
     with _PENDING_ACTIONS_LOCK:
         return _PENDING_ACTIONS.pop(_pending_key(user_id, session_id), None)
 
@@ -164,7 +163,7 @@ def _clear_pending_action(user_id: object, session_id: str) -> None:
         _PENDING_ACTIONS.pop(_pending_key(user_id, session_id), None)
 
 
-def _extract_json_object(content: str) ->Optional[dict]:
+def _extract_json_object(content: str) -> dict | None:
     match = re.search(r"\{[\s\S]*\}", content)
     raw = match.group(0) if match else content
     try:
@@ -300,7 +299,7 @@ async def _script_spec_from_prompt(message: str) -> dict:
     }
 
 
-async def _resolve_target_server(target_server_id:Optional[str]) ->Optional[JamfServer]:
+async def _resolve_target_server(target_server_id: str | None) -> JamfServer | None:
     async with AsyncSessionLocal() as db:
         query = (
             select(JamfServer).where(JamfServer.is_active.is_(True)).order_by(JamfServer.name.asc())
@@ -331,8 +330,8 @@ def _format_preview(action: dict) -> str:
 async def _build_action_plan(
     message: str,
     current_user,
-    target_server_id:Optional[str],
-) ->Optional[dict]:
+    target_server_id: str | None,
+) -> dict | None:
     permissions = get_user_permissions(current_user)
     if "servers.manage" not in permissions and not current_user.is_admin:
         return {"error": "You do not have permission to create objects. Required: servers.manage"}
@@ -471,7 +470,7 @@ async def _execute_action_plan(current_user, action: dict) -> str:
 
 async def _oauth_token(
     client: httpx.AsyncClient, base_url: str, client_id: str, client_secret: str
-) ->Optional[str]:
+) -> str | None:
     token_resp = await client.post(
         f"{base_url}/api/oauth/token",
         data={
@@ -489,7 +488,7 @@ async def _oauth_token(
 async def _create_policy_on_server(
     message: str,
     current_user,
-    target_server_id:Optional[str],
+    target_server_id: str | None,
 ) -> str:
     permissions = get_user_permissions(current_user)
     if "servers.manage" not in permissions and not current_user.is_admin:
@@ -548,7 +547,7 @@ async def _create_policy_on_server(
 async def _create_group_on_server(
     message: str,
     current_user,
-    target_server_id:Optional[str],
+    target_server_id: str | None,
 ) -> str:
     permissions = get_user_permissions(current_user)
     if "servers.manage" not in permissions and not current_user.is_admin:
@@ -698,7 +697,7 @@ async def _stream_ollama(history: list[dict]):
         raise HTTPException(status_code=500, detail="Unexpected error calling the AI service.")
 
 
-async def _resolve_knowledge_base_collections(knowledge_base_ids:Optional[list[str]]) -> list[str]:
+async def _resolve_knowledge_base_collections(knowledge_base_ids: list[str] | None) -> list[str]:
     """Resolve selected knowledge base IDs to ordered Chroma collection names."""
     async with AsyncSessionLocal() as db:
         if not knowledge_base_ids:
@@ -741,7 +740,7 @@ async def _resolve_knowledge_base_collections(knowledge_base_ids:Optional[list[s
 
 
 async def _build_rag_context(
-    message: str, knowledge_base_ids:Optional[list[str]]
+    message: str, knowledge_base_ids: list[str] | None
 ) -> tuple[str, list[str]]:
     """Build RAG context from one or more selected knowledge bases in priority order."""
     collection_names = await _resolve_knowledge_base_collections(knowledge_base_ids)
@@ -874,7 +873,7 @@ async def chat(current_user: CurrentUser, body: ChatRequest) -> ChatResponse:
 
     async with AsyncSessionLocal() as db:
         # Resolve or create the session
-        session_obj:Optional[ChatSession] = None
+        session_obj: ChatSession | None = None
         if body.session_id:
             result = await db.execute(
                 select(ChatSession).where(
@@ -984,7 +983,7 @@ async def chat_stream(current_user: CurrentUser, body: ChatRequest) -> Streaming
 
             yield _ndjson_event({"type": "stage", "message": "Loading session history..."})
             async with AsyncSessionLocal() as db:
-                session_obj:Optional[ChatSession] = None
+                session_obj: ChatSession | None = None
                 if body.session_id:
                     result = await db.execute(
                         select(ChatSession).where(

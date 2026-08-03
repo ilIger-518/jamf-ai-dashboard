@@ -2,9 +2,6 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.database import get_db
-from app.main import app
-
 
 @pytest.fixture
 async def async_session() -> AsyncSession:
