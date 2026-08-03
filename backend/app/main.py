@@ -15,8 +15,8 @@ from sqlalchemy import select, update
 
 from app.cache import close_redis, get_redis
 from app.config import get_settings
-from app.logging_config import configure_logging
 from app.database import AsyncSessionLocal, engine
+from app.logging_config import configure_logging
 from app.models.scrape_job import ScrapeJob
 from app.models.user import User
 from app.routers import (
