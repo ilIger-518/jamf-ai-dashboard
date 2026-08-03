@@ -35,7 +35,7 @@ def _chunk_text(text: str) -> list[str]:
     return [c.strip() for c in chunks if c.strip()]
 
 
-async def _embed(texts: list[str], num_thread: int = None) -> list[list[float]]:
+async def _embed(texts: list[str], num_thread: int | None = None) -> list[list[float]]:
     """Call the configured embedding provider for a batch of texts."""
     return await embed_texts(texts, num_thread=num_thread)
 
@@ -44,7 +44,7 @@ async def ingest_document(
     source_url: str,
     title: str,
     text: str,
-    num_thread: int = None,
+    num_thread: int | None = None,
     collection_name: str = COLLECTION_NAME,
 ) -> tuple[int, list[str]]:
     """

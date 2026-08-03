@@ -308,7 +308,7 @@ async def _seed_from_sitemap(http: httpx.AsyncClient, start_url: str) -> tuple[l
 # ---------------------------------------------------------------------------
 
 
-def _detect_zoomin_api_host(html: str) -> str:
+def _detect_zoomin_api_host(html: str) -> str | None:
     """
     Extract the Zoomin backend API hostname from the embedded app config block.
     Looks for: "api":{"host":"learn-be.jamf.com"}  (or similar)
@@ -317,7 +317,9 @@ def _detect_zoomin_api_host(html: str) -> str:
     return m.group(1) if m else None
 
 
-async def _try_zoomin_content(http: httpx.AsyncClient, url: str, page_html: str) -> tuple[str, str]:
+async def _try_zoomin_content(
+    http: httpx.AsyncClient, url: str, page_html: str
+) -> tuple[str, str] | None:
     """
     If the URL matches a Zoomin documentation page pattern AND the page HTML
     contains a Zoomin config (or the domain is a known Zoomin host), fetch the
