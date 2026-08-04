@@ -160,7 +160,7 @@ async def _create_package_on_target(
     base_url: str,
     token: str,
     payload: dict[str, Any],
-) -> tuple[list[str], int] | None:
+) -> tuple[list[str], int | None]:
     """Create a package record on target.
 
     Returns ``(logs, new_package_id)``.  *new_package_id* is ``None`` when the
@@ -501,7 +501,7 @@ async def list_packages(
         )
 
         raw_items: list[dict[str, Any]] = []
-        package_endpoints: list[tuple[str, dict[str, Any]], str] | None = [
+        package_endpoints: list[tuple[str, dict[str, Any] | None, str]] = [
             ("/api/v1/packages", {"page": 0, "page-size": 200}, "modern"),
             ("/JSSResource/packages", None, "classic"),
         ]

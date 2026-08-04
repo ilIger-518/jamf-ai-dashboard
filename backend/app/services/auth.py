@@ -59,7 +59,7 @@ class AuthService:
         return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
 
     @staticmethod
-    def _decode_token(token: str) -> dict[str, Any]:
+    def _decode_token(token: str) -> dict[str, Any] | None:
         settings = get_settings()
         try:
             return jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
@@ -81,7 +81,7 @@ class AuthService:
         await redis.delete(key)
 
     @staticmethod
-    async def validate_refresh_token(refresh_token: str, redis: Redis) -> uuid.UUID:
+    async def validate_refresh_token(refresh_token: str, redis: Redis) -> uuid.UUID | None:
         payload = AuthService._decode_token(refresh_token)
         if not payload or payload.get("type") != "refresh":
             return None
@@ -94,7 +94,7 @@ class AuthService:
     # ── User lookup ──────────────────────────────────────────────
 
     @staticmethod
-    async def get_user_from_token(token: str, db: AsyncSession, redis: Redis) -> User:
+    async def get_user_from_token(token: str, db: AsyncSession, redis: Redis) -> User | None:
         payload = AuthService._decode_token(token)
         if not payload or payload.get("type") != "access":
             return None
@@ -106,7 +106,7 @@ class AuthService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def authenticate(username: str, password: str, db: AsyncSession) -> User:
+    async def authenticate(username: str, password: str, db: AsyncSession) -> User | None:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         if user is None or not AuthService.verify_password(password, user.hashed_password):

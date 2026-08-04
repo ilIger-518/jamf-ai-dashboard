@@ -841,7 +841,7 @@ async def _fetch_smart_group_detail(
 
 async def _sync_smart_groups(
     db_session, server: JamfServer, client: httpx.AsyncClient, token: str
-) -> tuple[int, int, int, str] | None:
+) -> tuple[int, int, int, str | None]:
     """Sync computer smart groups via the Classic API.
 
     Returns ``(created, updated, deleted, warning)`` where *warning* is a
